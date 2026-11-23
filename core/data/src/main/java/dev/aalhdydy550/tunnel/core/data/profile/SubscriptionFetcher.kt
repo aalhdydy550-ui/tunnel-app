@@ -24,14 +24,39 @@ object SubscriptionFetcher {
     /** Refuse bodies larger than this: a link list is small text. */
     const val MAX_BODY_BYTES = 1_000_000
 
+    /**
+     * Whether a subscription URL is fetchable by this app.
+     *
+     * https is always allowed. Plain http is allowed only for a loopback
+     * host (127.0.0.1, ::1, localhost) — the unit tests use a local HTTP
+     * server. Any other http host is rejected here instead of failing
+     * later at the platform: the app's network security config forbids
+     * cleartext traffic, so a remote http:// subscription could never
+     * be fetched.
+     */
+    fun isAllowedSubscriptionUrl(url: String): Boolean {
+        if (url.startsWith("https://")) return true
+        if (!url.startsWith("http://")) return false
+        val authority = url.removePrefix("http://").substringBefore("/")
+        // Bracketed IPv6 (e.g. [::1]:8080) contains ':' inside the
+        // brackets, so the port must be stripped after the ']', not at
+        // the first ':'.
+        val host = if (authority.startsWith("[")) {
+            authority.substringBefore("]").removePrefix("[")
+        } else {
+            authority.substringBefore(":")
+        }
+        return host == "localhost" || host == "::1" || host.startsWith("127.")
+    }
+
     /** Downloads the subscription body as text. Throws on any failure. */
     fun fetchBody(
         client: OkHttpClient,
         url: String,
         timeoutMs: Long = 15_000,
     ): String {
-        require(url.startsWith("http://") || url.startsWith("https://")) {
-            "subscription URL must start with http:// or https://"
+        require(isAllowedSubscriptionUrl(url)) {
+            "subscription URL must use https:// (plain http:// is allowed only for loopback hosts)"
         }
         val request = Request.Builder()
             .url(url)
