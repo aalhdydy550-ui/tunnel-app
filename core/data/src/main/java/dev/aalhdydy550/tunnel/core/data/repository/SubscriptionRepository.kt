@@ -54,12 +54,12 @@ class SubscriptionRepository @Inject constructor(
             ?: return RefreshOutcome(0, listOf("subscription not found"))
         return try {
             val result = SubscriptionFetcher.fetchAndParse(client, subscription.url)
-            profileDao.deleteBySubscriptionId(id)
-            for (profile in result.profiles) {
-                profileDao.insert(
-                    profileToEntity(profile.copy(subscriptionId = id)),
-                )
-            }
+            // One transaction: a failure halfway through the replace
+            // rolls back, so the old profiles survive intact.
+            profileDao.replaceBySubscriptionId(
+                id,
+                result.profiles.map { profileToEntity(it.copy(subscriptionId = id)) },
+            )
             subscriptionDao.update(
                 subscription.copy(
                     lastFetchedAt = System.currentTimeMillis(),

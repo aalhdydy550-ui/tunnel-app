@@ -26,7 +26,7 @@ class ProfileRepository @Inject constructor(
     private val dao: ProfileDao,
 ) {
     val profiles: Flow<List<Profile>> = dao.getAll().map { list ->
-        list.map { it.toModel() }
+        list.mapNotNull { it.toModel() }
     }
 
     suspend fun getById(id: Long): Profile? = dao.getById(id)?.toModel()
@@ -124,14 +124,24 @@ internal fun profileToEntity(profile: Profile) = ProfileEntity(
     subscriptionId = profile.subscriptionId,
 )
 
-internal fun profileEntityToModel(entity: ProfileEntity) = Profile(
-    id = entity.id,
-    name = entity.name,
-    type = ProfileType.valueOf(entity.type),
-    server = entity.server,
-    port = entity.port,
-    outboundJson = entity.outboundJson,
-    createdAt = entity.createdAt,
-    countryCode = entity.countryCode,
-    subscriptionId = entity.subscriptionId,
-)
+/**
+ * Entity → model. Returns `null` for a row whose stored `type` is not a
+ * known [ProfileType] (hand-edited database, or a row written by an older
+ * build) so one corrupt row can never crash the whole profile list —
+ * callers skip it instead.
+ */
+internal fun profileEntityToModel(entity: ProfileEntity): Profile? = try {
+    Profile(
+        id = entity.id,
+        name = entity.name,
+        type = ProfileType.valueOf(entity.type),
+        server = entity.server,
+        port = entity.port,
+        outboundJson = entity.outboundJson,
+        createdAt = entity.createdAt,
+        countryCode = entity.countryCode,
+        subscriptionId = entity.subscriptionId,
+    )
+} catch (e: IllegalArgumentException) {
+    null
+}
