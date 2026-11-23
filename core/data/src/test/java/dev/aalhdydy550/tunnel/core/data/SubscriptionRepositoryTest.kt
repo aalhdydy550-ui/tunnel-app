@@ -272,6 +272,21 @@ class SubscriptionRepositoryTest {
     }
 
     @Test
+    fun `addSubscription rejects plain http to a non-loopback host`() = runTest {
+        val repository = SubscriptionRepository(
+            FakeSubscriptionDao(),
+            FakeProfileDao(),
+            client(),
+        )
+        try {
+            repository.addSubscription("http://example.com/sub")
+            org.junit.Assert.fail("expected an exception for plain http to a remote host")
+        } catch (e: IllegalArgumentException) {
+            assertTrue(e.message!!.contains("http"))
+        }
+    }
+
+    @Test
     fun `addSubscription defaults the name to the host`() = runTest {
         val subscriptionDao = FakeSubscriptionDao()
         val repository = SubscriptionRepository(

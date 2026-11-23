@@ -138,6 +138,19 @@ class SubscriptionFetcherTest {
         }
     }
 
+    @Test
+    fun `fetchAndParse rejects plain http to a non-loopback host`() = runTest {
+        // The network security config forbids cleartext, so a remote
+        // http:// URL could never be fetched — it must fail validation,
+        // not later at the platform. Loopback http stays allowed (tests).
+        try {
+            SubscriptionFetcher.fetchAndParse(client(), "http://example.com/sub")
+            fail("expected an exception for plain http to a remote host")
+        } catch (e: IllegalArgumentException) {
+            assertTrue(e.message!!.contains("http"))
+        }
+    }
+
     /**
      * Round-trip for the new import path (the Hamo lesson: a list the
      * app cannot read back is a shipped bug): fetch → parse → export
