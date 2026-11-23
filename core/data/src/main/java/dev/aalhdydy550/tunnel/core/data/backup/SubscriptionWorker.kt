@@ -1,15 +1,14 @@
 package dev.aalhdydy550.tunnel.core.data.backup
 
 import android.content.Context
-import androidx.room.Room
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import dev.aalhdydy550.tunnel.core.data.net.defaultOkHttpClient
 import dev.aalhdydy550.tunnel.core.data.repository.SubscriptionRepository
-import dev.aalhdydy550.tunnel.core.database.TunnelDatabase
-import okhttp3.OkHttpClient
+import dev.aalhdydy550.tunnel.core.database.TunnelDatabaseHolder
 import java.util.concurrent.TimeUnit
 
 /**
@@ -20,11 +19,15 @@ import java.util.concurrent.TimeUnit
  * manual refresh (see
  * [SubscriptionRepository][dev.aalhdydy550.tunnel.core.data.repository.SubscriptionRepository]).
  * A failed fetch keeps the old profiles and records the error on the
- * subscription; the worker itself always succeeds so WorkManager does
- * not retry a failing URL in a tight loop.
+ * subscription; a failing URL is never retried in a tight loop —
+ * [doWork] returns `Result.retry()` only on a database-level failure
+ * (fetch errors are caught per subscription inside
+ * [SubscriptionRepository][dev.aalhdydy550.tunnel.core.data.repository.SubscriptionRepository]).
  *
- * The worker builds the database directly (no Hilt worker setup in
- * v0.1) using the same database name and migrations as the app.
+ * The worker uses the shared database instance ([TunnelDatabaseHolder])
+ * and the shared HTTP client ([defaultOkHttpClient]) — the same ones
+ * the app uses — so it never builds a second Room instance on the
+ * same file, and never closes it.
  */
 class SubscriptionWorker(
     appContext: Context,
@@ -33,27 +36,13 @@ class SubscriptionWorker(
 
     override suspend fun doWork(): Result {
         return runCatching {
-            val database = Room.databaseBuilder(
-                applicationContext,
-                TunnelDatabase::class.java,
-                "tunnel.db",
+            val database = TunnelDatabaseHolder.get(applicationContext)
+            val repository = SubscriptionRepository(
+                database.subscriptionDao(),
+                database.profileDao(),
+                defaultOkHttpClient(),
             )
-                .addMigrations(
-                    TunnelDatabase.MIGRATION_1_2,
-                    TunnelDatabase.MIGRATION_2_3,
-                )
-                .fallbackToDestructiveMigration()
-                .build()
-            try {
-                val repository = SubscriptionRepository(
-                    database.subscriptionDao(),
-                    database.profileDao(),
-                    OkHttpClient(),
-                )
-                repository.refreshAll()
-            } finally {
-                database.close()
-            }
+            repository.refreshAll()
         }.fold(
             onSuccess = { Result.success() },
             onFailure = { Result.retry() },

@@ -1,14 +1,13 @@
 package dev.aalhdydy550.tunnel.core.data.backup
 
 import android.content.Context
-import androidx.room.Room
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import dev.aalhdydy550.tunnel.core.data.repository.ProfileRepository
-import dev.aalhdydy550.tunnel.core.database.TunnelDatabase
+import dev.aalhdydy550.tunnel.core.database.TunnelDatabaseHolder
 import kotlinx.coroutines.flow.first
 import java.io.File
 import java.text.SimpleDateFormat
@@ -27,8 +26,9 @@ import java.util.concurrent.TimeUnit
  * apps. Sharing a backup with another device is an explicit user
  * action (export from the servers screen via the system share sheet).
  *
- * The worker builds the database directly (no Hilt worker setup in
- * v0.1) using the same database name and migration as the app.
+ * The worker uses the shared database instance ([TunnelDatabaseHolder])
+ * — the same one the app UI observes — so it never builds a second
+ * Room instance on the same file, and never closes it.
  */
 class BackupWorker(
     appContext: Context,
@@ -37,29 +37,15 @@ class BackupWorker(
 
     override suspend fun doWork(): Result {
         return runCatching {
-            val database = Room.databaseBuilder(
-                applicationContext,
-                TunnelDatabase::class.java,
-                "tunnel.db",
-            )
-                .addMigrations(
-                    TunnelDatabase.MIGRATION_1_2,
-                    TunnelDatabase.MIGRATION_2_3,
-                )
-                .fallbackToDestructiveMigration()
-                .build()
-            try {
-                val repository = ProfileRepository(database.profileDao())
-                val profiles = repository.profiles.first()
-                if (profiles.isEmpty()) return Result.success()
-                val dir = File(applicationContext.filesDir, BACKUP_DIR).apply { mkdirs() }
-                val stamp = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-                File(dir, "tunnel-backup-$stamp.json")
-                    .writeText(exportProfilesToJson(profiles))
-                pruneOldBackups(dir)
-            } finally {
-                database.close()
-            }
+            val database = TunnelDatabaseHolder.get(applicationContext)
+            val repository = ProfileRepository(database.profileDao())
+            val profiles = repository.profiles.first()
+            if (profiles.isEmpty()) return Result.success()
+            val dir = File(applicationContext.filesDir, BACKUP_DIR).apply { mkdirs() }
+            val stamp = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+            File(dir, "tunnel-backup-$stamp.json")
+                .writeText(exportProfilesToJson(profiles))
+            pruneOldBackups(dir)
         }.fold(
             onSuccess = { Result.success() },
             onFailure = { Result.retry() },
