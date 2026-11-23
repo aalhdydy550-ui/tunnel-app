@@ -3,15 +3,20 @@
 # Kotlin 2.3.21 is the newest stable line with a matching KSP release (2.3.14).
 # AGP 8.13.2 is the newest 8.x stable line and pairs with Gradle 8.14.8
 # (AGP 9.x requires Gradle 9.x, so it is deliberately NOT used here).
-# Hilt is pinned to 2.59: it is the newest Hilt whose Gradle plugin works
-# with AGP 8.x (verified from the plugin binaries: 2.59 requires AGP
-# >= 8.4.0, while 2.59.2 and later require AGP >= 9.0.0 and fail the
-# build with "only compatible with AGP version 9.0.0 or higher").
-# Do NOT bump Hilt past 2.59 without upgrading AGP to 9.x first.
+# Hilt is pinned to 2.58: it is the newest Hilt whose Gradle plugin works
+# with AGP 8.13.2. Verified 2026-11-24 from the plugin binaries:
+# Hilt 2.59's HiltGradlePlugin references
+# ScopedArtifact$POST_COMPILATION_CLASSES, an enum constant that exists
+# only in AGP 9.x (AGP 8.13.2's ScopedArtifact has only CLASSES and
+# JAVA_RES) — so 2.59 fails project ':app' configuration with
+# "Failed to notify project evaluation listener" before any test runs
+# (CI run 41). Hilt 2.57.2 and 2.58 are clean (no such reference).
+# Do NOT bump Hilt past 2.58 without upgrading AGP to 9.x first
+# (AGP 9.0.0 exists, but it requires Gradle 9.x).
 agp = "8.13.2"
 kotlin = "2.3.21"
 ksp = "2.3.14"
-hilt = "2.59"
+hilt = "2.58"
 composeBom = "2026.11.01"
 room = "2.8.5"
 workmanager = "2.12.0"
