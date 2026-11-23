@@ -11,7 +11,7 @@
 # Usage: ./scripts/build-libbox.sh
 set -euo pipefail
 
-SINGBOX_VERSION="v1.14.4"
+SINGBOX_VERSION="${SINGBOX_VERSION:-v1.14.4}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="${TMPDIR:-/tmp}/tunnel-libbox-build"
 DEST="$REPO_ROOT/feature/connection/libs/libbox.aar"
