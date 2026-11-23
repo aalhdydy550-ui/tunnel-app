@@ -42,7 +42,10 @@ class BackupWorker(
                 TunnelDatabase::class.java,
                 "tunnel.db",
             )
-                .addMigrations(TunnelDatabase.MIGRATION_1_2)
+                .addMigrations(
+                    TunnelDatabase.MIGRATION_1_2,
+                    TunnelDatabase.MIGRATION_2_3,
+                )
                 .fallbackToDestructiveMigration()
                 .build()
             try {
