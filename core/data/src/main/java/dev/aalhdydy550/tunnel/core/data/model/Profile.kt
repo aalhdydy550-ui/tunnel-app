@@ -67,6 +67,12 @@ data class Profile(
      * at import, or filled from the offline GeoIP data in Phase 2.
      */
     val countryCode: String = "",
+    /**
+     * The subscription this profile came from, or null for a manually
+     * imported profile. A subscription refresh replaces only the
+     * profiles with its own id.
+     */
+    val subscriptionId: Long? = null,
 ) {
     val backend: Backend
         get() = when (type) {
