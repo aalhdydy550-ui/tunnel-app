@@ -39,9 +39,9 @@ class SubscriptionRepository @Inject constructor(
     /** Adds a subscription (no fetch yet — call [refreshSubscription]). */
     suspend fun addSubscription(url: String, name: String = ""): Long {
         val cleanUrl = url.trim()
-        require(
-            cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://"),
-        ) { "subscription URL must start with http:// or https://" }
+        require(SubscriptionFetcher.isAllowedSubscriptionUrl(cleanUrl)) {
+            "subscription URL must use https:// (plain http:// is allowed only for loopback hosts)"
+        }
         val displayName = name.trim().ifBlank { hostOf(cleanUrl) }
         return subscriptionDao.insert(
             SubscriptionEntity(url = cleanUrl, name = displayName),
