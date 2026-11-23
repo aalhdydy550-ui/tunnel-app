@@ -172,21 +172,18 @@ fun ServersScreen(
                     }
                 },
                 onDisconnect = { connectionViewModel.disconnect() },
-                onServerCardClick = { showServers = !showServers },
+                onServerCardClick = {
+                    // Tapping the server card shows the list — and
+                    // measures latencies automatically, so the numbers
+                    // are there for a manual pick without any button.
+                    showServers = !showServers
+                    if (showServers) profilesViewModel.testLatency()
+                },
             )
         }
+        // While a latency measurement is running (it starts
+        // automatically when the server list opens), show a hint.
         item {
-            // Latency test only (the auto-fastest pick lives in the
-            // connect button now). Tapping it also shows the list so
-            // the measured times are visible.
-            OutlinedButton(
-                onClick = {
-                    showServers = true
-                    profilesViewModel.testLatency()
-                },
-                enabled = profiles.isNotEmpty() && !latencyTesting,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("اختبار التأخير") }
             if (latencyTesting) {
                 Text(
                     text = "جارٍ اختبار الخوادم…",
