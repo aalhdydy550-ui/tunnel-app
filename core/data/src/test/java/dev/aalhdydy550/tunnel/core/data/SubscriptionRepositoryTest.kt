@@ -76,6 +76,18 @@ class SubscriptionRepositoryTest {
             emit()
         }
 
+        override suspend fun replaceBySubscriptionId(
+            subscriptionId: Long,
+            profiles: List<ProfileEntity>,
+        ) {
+            // Fake runs in-memory, so delete + insert cannot fail
+            // halfway; the sequence still mirrors the real DAO.
+            deleteBySubscriptionId(subscriptionId)
+            for (profile in profiles) {
+                insert(profile)
+            }
+        }
+
         override suspend fun count(): Int = rows.size
     }
 
