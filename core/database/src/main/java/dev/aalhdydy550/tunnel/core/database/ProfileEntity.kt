@@ -18,4 +18,10 @@ data class ProfileEntity(
     val createdAt: Long,
     /** ISO 3166-1 alpha-2 country code, "" when unknown. Added in v2. */
     val countryCode: String = "",
+    /**
+     * The subscription this profile came from, or null for a manually
+     * imported profile. Added in v3: a subscription refresh deletes
+     * only the profiles with its own id, never manual profiles.
+     */
+    val subscriptionId: Long? = null,
 )
