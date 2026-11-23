@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import dagger.hilt.android.AndroidEntryPoint
+import dev.aalhdydy550.tunnel.core.ui.R as CoreUiR
 import dev.aalhdydy550.tunnel.core.ui.TunnelTheme
 import dev.aalhdydy550.tunnel.feature.connection.ConnectionViewModel
 import dev.aalhdydy550.tunnel.feature.profiles.ImportScreen
@@ -103,7 +104,7 @@ class MainActivity : ComponentActivity() {
                                 horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
                                 Image(
-                                    painter = painterResource(R.drawable.ic_app_logo),
+                                    painter = painterResource(CoreUiR.drawable.ic_app_logo),
                                     contentDescription = "شعار Ayman Tunnel Plus",
                                     modifier = Modifier.size(80.dp),
                                     contentScale = ContentScale.Fit,
@@ -193,7 +194,7 @@ class MainActivity : ComponentActivity() {
                                     // a small second line.
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Image(
-                                            painter = painterResource(R.drawable.ic_app_logo),
+                                            painter = painterResource(CoreUiR.drawable.ic_app_logo),
                                             contentDescription = null,
                                             modifier = Modifier.size(35.dp),
                                             contentScale = ContentScale.Fit,
