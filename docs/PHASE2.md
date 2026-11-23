@@ -69,6 +69,18 @@ new capability.
 - `ProfileLinkParser` rejects `zivpn://` links with a clear Phase 2
   message (so users are not misled into thinking it connects).
 
+### خوادم مرجعية معروفة (للاختبار فقط — لا اتصال ولا استخدام)
+
+> **تنبيه صريح:** هذه الخوادم الثلاثة مرجع لاختبار توافق وحدة
+> المرحلة 2 فقط — **بلا أي اتصال بها وبلا أي بيانات دخول**، ولا
+> تُستخدم كخوادم فعلية في التطبيق. المصدر: القائمة الافتراضية
+> المدمجة في Hamo 3.3 بعد فك التشفير (تقرير
+> `SERVERS-ANALYSIS-AR.md` §2).
+
+- `udp5.zivpn.com` — UDP 6000–9500، مصادقة=1
+- `135.125.205.76` — UDP 9501–13000
+- `51.161.9.44` — UDP 9501–13000
+
 ## 2. Free-internet mechanisms (Phase 2, after ZIVPN)
 
 User goal, clarified 2026-11-23: the app should eventually be able to
