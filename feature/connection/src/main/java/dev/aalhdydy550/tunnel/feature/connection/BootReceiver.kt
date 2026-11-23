@@ -5,12 +5,11 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import androidx.core.content.ContextCompat
-import androidx.datastore.preferences.core.booleanPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
+import dagger.hilt.android.AndroidEntryPoint
+import dev.aalhdydy550.tunnel.core.data.repository.SettingsRepository
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-
-private val Context.bootSettingsDataStore by preferencesDataStore(name = "tunnel_settings")
+import javax.inject.Inject
 
 /**
  * Auto-restart on boot (opt-in setting).
@@ -24,16 +23,22 @@ private val Context.bootSettingsDataStore by preferencesDataStore(name = "tunnel
  *
  * Starting a foreground service from BOOT_COMPLETED is one of the
  * cases Android explicitly allows (no background-start restriction).
+ *
+ * The setting is read through the injected [SettingsRepository] — the
+ * single DataStore owner — never through a second DataStore instance
+ * on the same `tunnel_settings` file.
  */
+@AndroidEntryPoint
 class BootReceiver : BroadcastReceiver() {
+
+    @Inject
+    lateinit var settingsRepository: SettingsRepository
 
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action != Intent.ACTION_BOOT_COMPLETED) return
         try {
             val autoStart = runBlocking {
-                context.bootSettingsDataStore.data.first()[
-                    booleanPreferencesKey("auto_start_on_boot"),
-                ] ?: false
+                settingsRepository.autoStartOnBoot.first()
             }
             if (!autoStart) return
             val session = LastSessionStore(context).load() ?: return
