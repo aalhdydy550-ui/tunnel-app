@@ -11,7 +11,9 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.aalhdydy550.tunnel.core.database.ProfileDao
+import dev.aalhdydy550.tunnel.core.database.SubscriptionDao
 import dev.aalhdydy550.tunnel.core.database.TunnelDatabase
+import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(
@@ -26,12 +28,27 @@ object DataModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): TunnelDatabase =
         Room.databaseBuilder(context, TunnelDatabase::class.java, "tunnel.db")
-            .addMigrations(TunnelDatabase.MIGRATION_1_2)
+            .addMigrations(
+                TunnelDatabase.MIGRATION_1_2,
+                TunnelDatabase.MIGRATION_2_3,
+            )
             .fallbackToDestructiveMigration()
             .build()
 
     @Provides
     fun provideProfileDao(database: TunnelDatabase): ProfileDao = database.profileDao()
+
+    @Provides
+    fun provideSubscriptionDao(database: TunnelDatabase): SubscriptionDao =
+        database.subscriptionDao()
+
+    @Provides
+    @Singleton
+    fun provideOkHttpClient(): okhttp3.OkHttpClient =
+        okhttp3.OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
 
     @Provides
     @Singleton
