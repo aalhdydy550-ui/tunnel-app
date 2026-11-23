@@ -49,6 +49,9 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6.4.1
 
+      - name: Restore executable bits (API uploads strip them)
+        run: chmod +x gradlew scripts/build-libbox.sh scripts/measure-footprint.sh
+
       - name: Build libbox from sing-box source
         run: ./scripts/build-libbox.sh
 
