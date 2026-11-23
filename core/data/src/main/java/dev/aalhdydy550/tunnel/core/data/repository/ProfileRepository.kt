@@ -42,6 +42,11 @@ class ProfileRepository @Inject constructor(
         dao.deleteById(profile.id)
     }
 
+    /** Deletes only the profiles that came from one subscription. */
+    suspend fun deleteBySubscriptionId(subscriptionId: Long) {
+        dao.deleteBySubscriptionId(subscriptionId)
+    }
+
     /** The whole list as a clean JSON backup document. */
     suspend fun exportToJson(): String = exportProfilesToJson(profiles.first())
 
@@ -91,25 +96,42 @@ class ProfileRepository @Inject constructor(
         return ProfileLinkParser.parseText(trimmed)
     }
 
-    private fun Profile.toEntity() = ProfileEntity(
-        id = id,
-        name = name,
-        type = type.name,
-        server = server,
-        port = port,
-        outboundJson = outboundJson,
-        createdAt = createdAt,
-        countryCode = countryCode,
-    )
+    private fun Profile.toEntity() = profileToEntity(this)
 
-    private fun ProfileEntity.toModel() = Profile(
-        id = id,
-        name = name,
-        type = ProfileType.valueOf(type),
-        server = server,
-        port = port,
-        outboundJson = outboundJson,
-        createdAt = createdAt,
-        countryCode = countryCode,
-    )
+    private fun ProfileEntity.toModel() = profileEntityToModel(this)
 }
+
+/**
+ * Shared Profile ↔ entity mapping (module-internal so both
+ * [ProfileRepository] and
+ * [SubscriptionRepository][dev.aalhdydy550.tunnel.core.data.repository.SubscriptionRepository]
+ * store profiles the same way).
+ *
+ * The JSON backup format deliberately does NOT carry `subscriptionId`:
+ * an exported profile re-imports as a manual profile, so a backup
+ * restored on another device never points at a subscription that does
+ * not exist there.
+ */
+internal fun profileToEntity(profile: Profile) = ProfileEntity(
+    id = profile.id,
+    name = profile.name,
+    type = profile.type.name,
+    server = profile.server,
+    port = profile.port,
+    outboundJson = profile.outboundJson,
+    createdAt = profile.createdAt,
+    countryCode = profile.countryCode,
+    subscriptionId = profile.subscriptionId,
+)
+
+internal fun profileEntityToModel(entity: ProfileEntity) = Profile(
+    id = entity.id,
+    name = entity.name,
+    type = ProfileType.valueOf(entity.type),
+    server = entity.server,
+    port = entity.port,
+    outboundJson = entity.outboundJson,
+    createdAt = entity.createdAt,
+    countryCode = entity.countryCode,
+    subscriptionId = entity.subscriptionId,
+)
