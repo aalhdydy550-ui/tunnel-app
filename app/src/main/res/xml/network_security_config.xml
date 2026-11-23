@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- No cleartext traffic, ever: every connection the app makes
+     (rule-set download, speed test, heartbeat) is HTTPS. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

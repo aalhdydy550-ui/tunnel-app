@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Display name. The package stays dev.aalhdydy550.tunnel;
+         the display name is independent of it. -->
+    <string name="app_name">Ayman Tunnel Plus</string>
+</resources>

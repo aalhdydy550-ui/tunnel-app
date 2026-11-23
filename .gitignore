@@ -1,0 +1,21 @@
+# Gradle / Android
+.gradle/
+build/
+local.properties
+*.iml
+.DS_Store
+
+# libbox AAR is a build artifact, NOT committed.
+# It is produced by scripts/build-libbox.sh (local) or by the GitHub Actions
+# workflow (CI) from the sing-box v1.14.4 source and copied into
+# feature/connection/libs/libbox.aar before the Gradle build runs.
+# Keep the placeholder files so the directory structure is visible in git.
+!feature/connection/libs/.gitkeep
+!feature/connection/libs/README.md
+feature/connection/libs/*.aar
+feature/connection/libs/*.aar.*
+
+# Android Studio
+.idea/
+*.jks
+*.keystore
