@@ -76,13 +76,17 @@ fun ServersScreen(
     val state by connectionViewModel.state.collectAsState()
     val speed by connectionViewModel.speed.collectAsState()
     val selectedProfile by connectionViewModel.selectedProfile.collectAsState()
-    val speedTestResult by connectionViewModel.speedTestResult.collectAsState()
-    val speedTestRunning by connectionViewModel.speedTestRunning.collectAsState()
+
+    // The server list is hidden until the user taps the server card
+    // (manual choice) or the latency test — the main screen stays
+    // clean like the original's.
+    var showServers by remember { mutableStateOf(false) }
 
     val profiles by profilesViewModel.profiles.collectAsState()
     val selectedId by profilesViewModel.selectedProfileId.collectAsState()
     val latency by profilesViewModel.latency.collectAsState()
     val latencyTesting by profilesViewModel.latencyTesting.collectAsState()
+    val selectingFastest by profilesViewModel.selectingFastest.collectAsState()
     val autoStartOnBoot by profilesViewModel.autoStartOnBoot.collectAsState()
     val killSwitchGuided by profilesViewModel.killSwitchGuided.collectAsState()
     val adsBlocking by profilesViewModel.adsBlocking.collectAsState()
@@ -153,29 +157,36 @@ fun ServersScreen(
                 state = state,
                 speed = speed,
                 selectedProfile = selectedProfile,
-                speedTestResult = speedTestResult,
-                speedTestRunning = speedTestRunning,
-                onConnect = { connectionViewModel.connect() },
+                selectingFastest = selectingFastest,
+                onConnect = {
+                    // Pressing connect first picks the fastest server,
+                    // then connects — unless the user just picked one
+                    // by hand, in which case that server is used.
+                    scope.launch {
+                        val target = if (profilesViewModel.consumeManualSelection()) {
+                            profiles.firstOrNull { it.id == selectedId }
+                        } else {
+                            profilesViewModel.selectFastestAndWait()
+                        }
+                        connectionViewModel.connect(target)
+                    }
+                },
                 onDisconnect = { connectionViewModel.disconnect() },
-                onSpeedTest = { connectionViewModel.runSpeedTest() },
+                onServerCardClick = { showServers = !showServers },
             )
         }
         item {
-            Row(
+            // Latency test only (the auto-fastest pick lives in the
+            // connect button now). Tapping it also shows the list so
+            // the measured times are visible.
+            OutlinedButton(
+                onClick = {
+                    showServers = true
+                    profilesViewModel.testLatency()
+                },
+                enabled = profiles.isNotEmpty() && !latencyTesting,
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                OutlinedButton(
-                    onClick = { profilesViewModel.testLatency() },
-                    enabled = profiles.isNotEmpty() && !latencyTesting,
-                    modifier = Modifier.weight(1f),
-                ) { Text("اختبار التأخير") }
-                Button(
-                    onClick = { profilesViewModel.selectFastest() },
-                    enabled = profiles.isNotEmpty() && !latencyTesting,
-                    modifier = Modifier.weight(1f),
-                ) { Text("اختيار الأسرع تلقائيًا") }
-            }
+            ) { Text("اختبار التأخير") }
             if (latencyTesting) {
                 Text(
                     text = "جارٍ اختبار الخوادم…",
@@ -195,22 +206,30 @@ fun ServersScreen(
                 }
             }
         }
-        items(profiles, key = { it.id }) { profile ->
-            val ms = latency[profile.id]
-            val latencySuffix = when {
-                ms == null && latency.containsKey(profile.id) -> " — لا يرد"
-                ms != null -> " — ${ms}م.ث"
-                else -> ""
+        // The server list only appears for a manual choice: tap the
+        // server card (or the latency test) to show it, tap a server
+        // to pick it — the list then hides again.
+        if (showServers) {
+            items(profiles, key = { it.id }) { profile ->
+                val ms = latency[profile.id]
+                val latencySuffix = when {
+                    ms == null && latency.containsKey(profile.id) -> " — لا يرد"
+                    ms != null -> " — ${ms}م.ث"
+                    else -> ""
+                }
+                ProfileRow(
+                    name = profile.name,
+                    typeLabel = profile.type.name,
+                    address = "${profile.server}:${profile.port}$latencySuffix",
+                    selected = profile.id == selectedId,
+                    onClick = {
+                        profilesViewModel.selectManually(profile.id)
+                        showServers = false
+                    },
+                    onDelete = { profilesViewModel.delete(profile) },
+                    flagEmoji = profile.flagEmoji,
+                )
             }
-            ProfileRow(
-                name = profile.name,
-                typeLabel = profile.type.name,
-                address = "${profile.server}:${profile.port}$latencySuffix",
-                selected = profile.id == selectedId,
-                onClick = { profilesViewModel.select(profile.id) },
-                onDelete = { profilesViewModel.delete(profile) },
-                flagEmoji = profile.flagEmoji,
-            )
         }
         item {
             SettingsSection(

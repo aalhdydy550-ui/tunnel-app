@@ -18,7 +18,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,19 +38,21 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.aalhdydy550.tunnel.core.data.model.Profile
-import dev.aalhdydy550.tunnel.core.data.net.SpeedTester
 import kotlinx.coroutines.delay
 
 /**
  * Hamo-style connection panel, reimplemented in Compose:
  *
- *   status row (down/up speeds at the sides, status text centered)
- *   → selected-server card (white, flag + name + protocol, chevron)
+ *   status row (live down/up speeds at the sides, status text
+ *   centered — the speed is always on screen, no test button)
+ *   → selected-server card (white, flag + name + protocol, chevron;
+ *     tap it to show the server list and pick one by hand)
  *   → "Connection time" + timer
  *   → big round connect button (dark navy circle, yellow ring,
  *     power mark drawn with Canvas, status word inside) with a
- *     yellow progress ring while connecting
- *   → speed-test button + result
+ *     yellow progress ring while connecting — pressing it first
+ *     picks the fastest server, then connects (unless the user
+ *     just picked one by hand).
  *
  * No ad banner, no copied assets: the power mark is drawn here,
  * the icon is our own logo, and every string is ours.
@@ -61,15 +62,15 @@ fun ConnectionPanel(
     state: TunnelState,
     speed: SpeedMonitor.Speed,
     selectedProfile: Profile?,
-    speedTestResult: SpeedTester.Result?,
-    speedTestRunning: Boolean,
+    selectingFastest: Boolean,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
-    onSpeedTest: () -> Unit,
+    onServerCardClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val connected = state is TunnelState.Started
-    val busy = state is TunnelState.Starting || state is TunnelState.Reconnecting
+    val busy = state is TunnelState.Starting || state is TunnelState.Reconnecting ||
+        selectingFastest
 
     // Connection timer: counts up while connected, resets otherwise.
     var startedAt by remember { mutableLongStateOf(0L) }
@@ -93,14 +94,15 @@ fun ConnectionPanel(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // Status row: down speed | status | up speed (Hamo's top row).
+        // Status row: live down speed | status | live up speed.
+        // The speed is always visible here — no test button needed.
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = "↓ ${formatRate(speed.rxBytesPerSec)}",
-                style = MaterialTheme.typography.bodySmall,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
@@ -116,7 +118,7 @@ fun ConnectionPanel(
             )
             Text(
                 text = "↑ ${formatRate(speed.txBytesPerSec)}",
-                style = MaterialTheme.typography.bodySmall,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
@@ -127,6 +129,7 @@ fun ConnectionPanel(
         Spacer(modifier = Modifier.height(8.dp))
 
         // Selected-server card (white, 60dp, like the original's card).
+        // Tap it to show the server list and pick one by hand.
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = cardColor()),
@@ -136,6 +139,7 @@ fun ConnectionPanel(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(60.dp)
+                    .clickable { onServerCardClick() }
                     .padding(horizontal = 15.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -225,7 +229,7 @@ fun ConnectionPanel(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = buttonLabel(state),
+                        text = buttonLabel(state, selectingFastest),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
@@ -248,24 +252,6 @@ fun ConnectionPanel(
                 text = state.message,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
-            )
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        OutlinedButton(
-            onClick = onSpeedTest,
-            enabled = connected && !speedTestRunning,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(if (speedTestRunning) "جارٍ القياس…" else "اختبار السرعة")
-        }
-        speedTestResult?.let { result ->
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "سرعة التحميل: ${formatRate(result.bytesPerSecond)}" +
-                    " (${result.bytesDownloaded / 1024} ك.ب في ${result.elapsedMs} م.ث)",
-                style = MaterialTheme.typography.bodySmall,
             )
         }
     }
@@ -320,13 +306,16 @@ private fun statusText(state: TunnelState): String = when (state) {
     is TunnelState.Error -> "تعذّر الاتصال"
 }
 
-private fun buttonLabel(state: TunnelState): String = when (state) {
+private fun buttonLabel(state: TunnelState, selectingFastest: Boolean): String {
+    if (selectingFastest) return "جارٍ اختيار الأسرع…"
+    return when (state) {
     TunnelState.Stopped -> "غير متصل"
     is TunnelState.Starting -> "جارٍ الاتصال…"
     is TunnelState.Started -> "متصل"
     is TunnelState.Stopping -> "جارٍ قطع الاتصال…"
     is TunnelState.Reconnecting -> "إعادة اتصال…"
     is TunnelState.Error -> "أعد المحاولة"
+    }
 }
 
 @Composable

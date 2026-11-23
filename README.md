@@ -157,8 +157,8 @@ Vodafone Free Flex / اتصالات / WE) تظهر أسماؤها فقط — و�
 والرام أثناء الاتصال، ومساحة بيانات التطبيق) تُقاس من الـAPK المبني
 فعليًا عندما يبنيه GitHub Actions، بأداة `scripts/measure-footprint.sh`،
 وتُسجَّل هنا حينها. لا يُدَّعى أي رقم لم يُقَس.
-كذلك وقت الاتصال وزمن أول بايت وسرعة التحميل: تُقاس على الجهاز (زر
-«اختبار السرعة» + السرعة الحية)، ولا أرقام مدّعاة قبل أول قياس حقيقي.
+كذلك وقت الاتصال وزمن أول بايت وسرعة التحميل: تُقاس على الجهاز (السرعة
+الحية تظهر على الشاشة دائمًا)، ولا أرقام مدّعاة قبل أول قياس حقيقي.
 
 ## المكدّس
 
@@ -219,7 +219,7 @@ API (403) — يُرفع عبر موقع github.com.
 **يشمل:** كل ما سبق — البروتوكولات السبعة عبر sing-box، والاستيراد
 بأشكاله، والاستقرار (خدمة أمامية + إعادة اتصال + نبض حياة + بطارية
 + إقلاع + إحياء + kill switch)، والسرعة (أسرع سيرفر + mux/fragment
-الاختياريان + DNS الأسرع + اختبار سرعة + سرعة حية)، والبصمة
+الاختياريان + DNS الأسرع + سرعة حية تظهر على الشاشة)، والبصمة
 (R8 + arm64 فقط + بلا ملفات مدمجة)، وحظر الإعلانات مع fallback آمن،
 والنسخ الاحتياطي، والأعلام بالإيموجي.
 
@@ -245,8 +245,6 @@ OpenVPN (ics-openvpn)، ومولّد الحمولة + SNI presets للنت ال�
 - **السرعة الحية من عدّادات النظام (TrafficStats)** بدل واجهة
   إحصاءات libbox — أبسط، ولا تحتاج CommandClient، وتقيس التدفق
   الحقيقي للنفق.
-- **اختبار السرعة 10 MB من Cloudflare** — حجم كافٍ لقياس صادق
-  دون إهدار بيانات.
 - **النسخ الاحتياطي اليومي تلقائي** (WorkManager) في التخزين الخاص —
   بلا إذن تخزين وبلا تعريض لقائمة الخوادم.
 - **اختيار DNS عند كل اتصال** (أسرع محلِّل عام) بدل إعداد يدوي —
@@ -307,7 +305,7 @@ credentials. Package `dev.aalhdydy550.tunnel`, repo
   heartbeat + battery exemption + boot auto-start + START_STICKY
   revival + kill switch.
 - Speed: fastest-server selection, optional mux / TLS fragment,
-  fastest-DNS selection, in-app speed test, live throughput.
+  fastest-DNS selection, live throughput shown on screen.
 - Footprint: R8 + arm64-v8a only + no embedded geoip data; measured
   numbers are recorded only after the first CI build
   (`scripts/measure-footprint.sh`).

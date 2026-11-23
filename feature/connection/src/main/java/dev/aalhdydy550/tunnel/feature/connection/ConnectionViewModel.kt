@@ -10,7 +10,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.aalhdydy550.tunnel.core.data.model.Profile
 import dev.aalhdydy550.tunnel.core.data.net.DnsSelector
 import dev.aalhdydy550.tunnel.core.data.net.EndpointProbe
-import dev.aalhdydy550.tunnel.core.data.net.SpeedTester
 import dev.aalhdydy550.tunnel.core.data.repository.ProfileRepository
 import dev.aalhdydy550.tunnel.core.data.repository.SettingsRepository
 import dev.aalhdydy550.tunnel.core.data.routing.RoutingDataManager
@@ -36,12 +35,16 @@ import javax.inject.Inject
  *
  * The tunnel state itself lives in [TunnelStateHolder] (written by the
  * service); this ViewModel adds the selected profile, the live speed,
- * the optional speed test, and the connect/disconnect actions.
+ * and the connect/disconnect actions. The live speed is shown on the
+ * main screen at all times (no separate speed-test button).
  *
- * Connect flow: if `VpnService.prepare()` returns null the permission
+ * Connect flow: [connect] takes the profile to use (the connect
+ * button passes the fastest server it just picked, or null to use the
+ * selected one); if `VpnService.prepare()` returns null the permission
  * is already granted and the service starts directly; otherwise the
  * ViewModel emits [vpnPermissionRequest] and the UI launches the
- * system permission screen, then calls [onVpnPermissionGranted].
+ * system permission screen, then calls [onVpnPermissionGranted] — which
+ * reconnects to the same profile [connect] was given.
  */
 @HiltViewModel
 class ConnectionViewModel @Inject constructor(
@@ -64,32 +67,32 @@ class ConnectionViewModel @Inject constructor(
     private val _vpnPermissionRequest = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val vpnPermissionRequest: SharedFlow<Unit> = _vpnPermissionRequest.asSharedFlow()
 
-    private val _speedTestResult = MutableStateFlow<SpeedTester.Result?>(null)
-    val speedTestResult: StateFlow<SpeedTester.Result?> = _speedTestResult.asStateFlow()
-
-    private val _speedTestRunning = MutableStateFlow(false)
-    val speedTestRunning: StateFlow<Boolean> = _speedTestRunning.asStateFlow()
+    /** The profile the last [connect] call was given, so
+     * [onVpnPermissionGranted] reconnects to the same server. */
+    private var pendingProfile: Profile? = null
 
     private val ruleSetsDir: File
         get() = File(context.filesDir, RoutingDataManager.RULE_SETS_DIR_NAME)
 
-    /** Starts the tunnel for the selected profile, asking for VPN permission first. */
-    fun connect() {
+    /** Starts the tunnel for [profile] (or the selected profile when
+     * null), asking for VPN permission first. */
+    fun connect(profile: Profile? = null) {
         viewModelScope.launch {
-            val profile = selectedProfile.value ?: return@launch
+            val target = profile ?: selectedProfile.value ?: return@launch
+            pendingProfile = target
             if (VpnService.prepare(context) != null) {
                 _vpnPermissionRequest.emit(Unit)
                 return@launch
             }
-            startServiceFor(profile)
+            startServiceFor(target)
         }
     }
 
     /** Called by the UI after the user granted the VPN permission. */
     fun onVpnPermissionGranted() {
         viewModelScope.launch {
-            val profile = selectedProfile.value ?: return@launch
-            startServiceFor(profile)
+            val target = pendingProfile ?: selectedProfile.value ?: return@launch
+            startServiceFor(target)
         }
     }
 
@@ -98,18 +101,6 @@ class ConnectionViewModel @Inject constructor(
             context,
             TunnelVpnService.stopIntent(context),
         )
-    }
-
-    /** Optional in-app download speed test (through the tunnel when connected). */
-    fun runSpeedTest() {
-        if (_speedTestRunning.value) return
-        viewModelScope.launch {
-            _speedTestRunning.value = true
-            _speedTestResult.value = withContext(Dispatchers.IO) {
-                runCatching { SpeedTester().test() }.getOrNull()
-            }
-            _speedTestRunning.value = false
-        }
     }
 
     private suspend fun startServiceFor(profile: Profile) {

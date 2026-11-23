@@ -29,11 +29,14 @@ import javax.inject.Inject
 /**
  * Server list + settings for the main screen.
  *
- * Owns the latency test ("اختبار التأخير" + "اختيار الأسرع تلقائيًا"
- * — the fastest server wins, with Hysteria2/WireGuard preferred on a
- * tie), the battery-exemption status, the kill-switch guidance flag,
- * the ads-blocking toggle + routing-data status (with retry), and the
- * JSON backup export.
+ * Owns the latency test ("اختبار التأخير" — the fastest server wins,
+ * with Hysteria2/WireGuard preferred on a tie), the battery-exemption
+ * status, the kill-switch guidance flag, the ads-blocking toggle +
+ * routing-data status (with retry), and the JSON backup export.
+ *
+ * Manual choice: tapping a server row marks it a manual selection, and
+ * the next connect uses that server instead of auto-picking the
+ * fastest (see [selectManually] / [consumeManualSelection]).
  */
 @HiltViewModel
 class ProfilesViewModel @Inject constructor(
@@ -62,6 +65,15 @@ class ProfilesViewModel @Inject constructor(
 
     private val _latencyTesting = MutableStateFlow(false)
     val latencyTesting: StateFlow<Boolean> = _latencyTesting.asStateFlow()
+
+    private val _selectingFastest = MutableStateFlow(false)
+    /** True while the connect button is picking the fastest server. */
+    val selectingFastest: StateFlow<Boolean> = _selectingFastest.asStateFlow()
+
+    /** True after the user taps a server row by hand; the next connect
+     * uses that server instead of auto-picking the fastest. */
+    var manualSelection = false
+        private set
 
     private val routingManager = RoutingDataManager(
         File(context.filesDir, RoutingDataManager.RULE_SETS_DIR_NAME),
@@ -97,6 +109,21 @@ class ProfilesViewModel @Inject constructor(
         viewModelScope.launch { settingsRepository.setSelectedProfileId(profileId) }
     }
 
+    /** Manual pick from the server list: remembers it for the next
+     * connect (which then skips the auto-fastest pick). */
+    fun selectManually(profileId: Long) {
+        manualSelection = true
+        select(profileId)
+    }
+
+    /** Consumes the manual-pick flag (true = the next connect must use
+     * the manually chosen server, not the fastest). */
+    fun consumeManualSelection(): Boolean {
+        val picked = manualSelection
+        manualSelection = false
+        return picked
+    }
+
     fun delete(profile: Profile) {
         viewModelScope.launch { profileRepository.delete(profile) }
     }
@@ -114,18 +141,25 @@ class ProfilesViewModel @Inject constructor(
         }
     }
 
-    /** Tests latency, then selects the fastest server (protocol tie-break). */
-    fun selectFastest() {
-        if (_latencyTesting.value) return
-        viewModelScope.launch {
-            _latencyTesting.value = true
-            val results = withContext(Dispatchers.IO) {
-                LatencyTester.testAll(profiles.value)
-            }
-            _latency.value = results.associate { it.profile.id to it.latencyMs }
-            _latencyTesting.value = false
-            ProtocolSpeed.pickFastest(results)?.let { select(it.id) }
+    /** Tests latency, then selects the fastest server and returns it
+     * (null when no server answers or a test is already running — the
+     * caller then connects to the currently selected server). Awaits
+     * the selection write so the caller can connect to the picked
+     * server right away. Used by the connect button: pressing connect
+     * first picks the fastest, then connects. */
+    suspend fun selectFastestAndWait(): Profile? {
+        if (_latencyTesting.value) return null
+        _selectingFastest.value = true
+        _latencyTesting.value = true
+        val results = withContext(Dispatchers.IO) {
+            LatencyTester.testAll(profiles.value)
         }
+        _latency.value = results.associate { it.profile.id to it.latencyMs }
+        _latencyTesting.value = false
+        _selectingFastest.value = false
+        val fastest = ProtocolSpeed.pickFastest(results)
+        fastest?.let { settingsRepository.setSelectedProfileId(it.id) }
+        return fastest
     }
 
     fun setAutoStartOnBoot(enabled: Boolean) {

@@ -13,8 +13,8 @@ import java.net.Socket
  *
  * This measures reachability + handshake time to the server itself, NOT
  * through the tunnel — it is how the user picks the fastest server
- * *before* connecting. The in-tunnel check is [SpeedTester] /
- * the heartbeat in `feature:connection`.
+ * *before* connecting. The live speed on screen comes from the
+ * heartbeat in `feature:connection`.
  *
  * Pure Kotlin (java.net only): unit-tested on the JVM against a local
  * [java.net.ServerSocket].

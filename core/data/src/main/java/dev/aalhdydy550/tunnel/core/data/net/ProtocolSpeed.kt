@@ -14,7 +14,7 @@ import dev.aalhdydy550.tunnel.core.data.model.ProfileType
  * latency always decides first (see [pickFastest]).
  *
  * No speed numbers are claimed here: this is a preference order, and the
- * real throughput is what [SpeedTester] measures on the device.
+ * real throughput is what the live speed display shows on the device.
  */
 object ProtocolSpeed {
 
