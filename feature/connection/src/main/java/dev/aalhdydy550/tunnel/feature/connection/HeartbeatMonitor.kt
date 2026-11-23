@@ -1,6 +1,7 @@
 package dev.aalhdydy550.tunnel.feature.connection
 
 import dev.aalhdydy550.tunnel.core.data.net.EndpointProbe
+import dev.aalhdydy550.tunnel.core.data.net.defaultOkHttpClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -104,11 +105,11 @@ class HeartbeatMonitor(
         /** Same endpoint the original app uses for its latency test. */
         const val DEFAULT_URL = "https://www.gstatic.com/generate_204"
 
-        fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
-            // 15s: a weak mobile link can take several seconds for the
-            // TLS handshake; the interval is 60s, so 15s is affordable
-            // and avoids false "dead tunnel" alarms.
-            .connectTimeout(15, TimeUnit.SECONDS)
+        fun defaultClient(): OkHttpClient = defaultOkHttpClient()
+            .newBuilder()
+            // 15s read (not the shared 30s): a weak mobile link can take
+            // several seconds for the TLS handshake; the interval is 60s,
+            // so 15s is affordable and avoids false "dead tunnel" alarms.
             .readTimeout(15, TimeUnit.SECONDS)
             .build()
     }
