@@ -1,0 +1,71 @@
+# Ayman Tunnel Plus — CI build.
+#
+# Builds libbox from the sing-box source (there are no Maven coordinates
+# for it), then builds the debug APK and runs the unit tests.
+#
+# IMPORTANT: workflow files cannot be uploaded through the GitHub API
+# (403). Upload this file through the github.com website instead:
+# repository → .github/workflows/build.yml → "Add file" → "Upload files".
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      SINGBOX_VERSION: v1.14.4
+      GO_VERSION: "1.25.5"
+      NDK_VERSION: "28.0.13004108"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6.3.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v7.1.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4.0.4
+
+      - name: Install Android NDK + platform
+        run: |
+          # compileSdk is 36 in every module (and the app pins
+          # build-tools 36.0.0), so android-36 + build-tools 36.0.0
+          # must be installed — android-34 alone fails the build.
+          sdkmanager "ndk;${NDK_VERSION}" "platforms;android-36" "platforms;android-34" "build-tools;36.0.0" "build-tools;34.0.0"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6.4.1
+
+      - name: Build libbox from sing-box source
+        run: ./scripts/build-libbox.sh
+
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --stacktrace
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Report APK size
+        run: |
+          ls -lh app/build/outputs/apk/debug/*.apk
+          du -h app/build/outputs/apk/debug/*.apk
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ayman-tunnel-plus-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
