@@ -3,7 +3,8 @@ package dev.aalhdydy550.tunnel.core.database
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
-import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.execSQL
 
 @Database(
     entities = [ProfileEntity::class, SubscriptionEntity::class],
@@ -21,8 +22,8 @@ abstract class TunnelDatabase : RoomDatabase() {
          * profile table holds the user's servers.
          */
         val MIGRATION_1_2: Migration = object : Migration(1, 2) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL(
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL(
                     "ALTER TABLE profiles ADD COLUMN countryCode TEXT NOT NULL DEFAULT ''",
                 )
             }
@@ -39,8 +40,8 @@ abstract class TunnelDatabase : RoomDatabase() {
          * database on open.
          */
         val MIGRATION_2_3: Migration = object : Migration(2, 3) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL(
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL(
                     "CREATE TABLE IF NOT EXISTS `subscriptions` (" +
                         "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
                         "`url` TEXT NOT NULL, " +
@@ -49,7 +50,7 @@ abstract class TunnelDatabase : RoomDatabase() {
                         "`lastProfileCount` INTEGER NOT NULL, " +
                         "`lastError` TEXT NOT NULL)",
                 )
-                db.execSQL(
+                connection.execSQL(
                     "ALTER TABLE profiles ADD COLUMN subscriptionId INTEGER",
                 )
             }
