@@ -1,11 +1,11 @@
 package dev.aalhdydy550.tunnel.core.data.routing
 
+import dev.aalhdydy550.tunnel.core.data.net.defaultOkHttpClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
-import java.util.concurrent.TimeUnit
 
 /**
  * Downloads and tracks the routing rule-sets in [dir] (the app-private
@@ -33,10 +33,8 @@ class RoutingDataManager(
         /** Directory name under filesDir for downloaded rule-sets. */
         const val RULE_SETS_DIR_NAME = "rule-sets"
 
-        fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .build()
+        /** The shared OkHttp configuration (15s connect / 30s read). */
+        fun defaultClient(): OkHttpClient = defaultOkHttpClient()
     }
 
     private val adsFile: File
