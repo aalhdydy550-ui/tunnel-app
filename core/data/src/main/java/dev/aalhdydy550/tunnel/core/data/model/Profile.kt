@@ -98,3 +98,22 @@ fun flagEmojiFor(countryCode: String): String {
         String(Character.toChars(0x1F1E6 + (letter - 'A')))
     }.joinToString("")
 }
+
+/**
+ * Server identity for duplicate detection on import: same protocol +
+ * same server + same port is the same server. Importing the same
+ * `.conf` or link twice must update the stored row, never add a
+ * second identical row.
+ *
+ * Raw sing-box JSON profiles carry no server/port ("" / 0), so the
+ * document itself is part of their identity — otherwise every JSON
+ * profile would "duplicate" every other one.
+ */
+fun isSameServer(a: Profile, b: Profile): Boolean {
+    if (a.type != b.type || a.server != b.server || a.port != b.port) return false
+    return if (a.type == ProfileType.SINGBOX_JSON) {
+        a.outboundJson == b.outboundJson
+    } else {
+        true
+    }
+}
