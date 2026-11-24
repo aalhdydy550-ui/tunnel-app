@@ -1,5 +1,6 @@
 package dev.aalhdydy550.tunnel.core.data.repository
 
+import dev.aalhdydy550.tunnel.core.data.backup.LockedExport
 import dev.aalhdydy550.tunnel.core.data.backup.exportProfilesToJson
 import dev.aalhdydy550.tunnel.core.data.backup.importProfilesFromJson
 import dev.aalhdydy550.tunnel.core.data.model.Profile
@@ -81,15 +82,40 @@ class ProfileRepository @Inject constructor(
     /**
      * Imports profiles from pasted / file text.
      *
-     * Dispatch by content: a `[Interface]` block is a WireGuard `.conf`;
-     * text starting with `{` is a raw sing-box JSON configuration; text
-     * starting with `[` is a JSON backup produced by [exportToJson];
-     * anything else is parsed line-by-line as proxy links.
+     * Dispatch by content: a locked export (`aytun://v1.…`) is
+     * unlocked with [password] first (without a password it reports
+     * the locked-export message instead of "invalid JSON"); a
+     * `[Interface]` block is a WireGuard `.conf`; text starting with
+     * `{` is a raw sing-box JSON configuration; text starting with
+     * `[` is a JSON backup produced by [exportToJson]; anything else
+     * is parsed line-by-line as proxy links.
+     *
+     * [password] is optional for backward compatibility: every
+     * existing call without a password keeps working as before.
      */
-    fun importFromText(text: String, fileName: String = ""): ProfileLinkParser.ImportResult {
+    fun importFromText(
+        text: String,
+        fileName: String = "",
+        password: String? = null,
+    ): ProfileLinkParser.ImportResult {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) {
             return ProfileLinkParser.ImportResult(emptyList(), listOf("empty input"))
+        }
+        // Locked export first: its `aytun://v1.…` text would otherwise
+        // fall through to the link parser and report "no valid links".
+        if (LockedExport.isLockedText(trimmed)) {
+            if (password.isNullOrBlank()) {
+                return ProfileLinkParser.ImportResult(
+                    emptyList(),
+                    listOf("هذا تصدير مقفول — أدخل كلمة السر لفتحه"),
+                )
+            }
+            return when (val unlocked = LockedExport.unlock(trimmed, password.toCharArray())) {
+                is LockedExport.UnlockResult.Ok -> importProfilesFromJson(unlocked.json)
+                is LockedExport.UnlockResult.Error ->
+                    ProfileLinkParser.ImportResult(emptyList(), listOf(unlocked.message))
+            }
         }
         // WireGuard `.conf` first: a .conf starts with `[Interface]`, so the
         // JSON-array check below (`startsWith("[")`) would swallow it and
