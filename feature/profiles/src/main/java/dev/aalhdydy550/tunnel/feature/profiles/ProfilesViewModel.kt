@@ -11,7 +11,6 @@ import dev.aalhdydy550.tunnel.core.data.net.LatencyTester
 import dev.aalhdydy550.tunnel.core.data.net.ProtocolSpeed
 import dev.aalhdydy550.tunnel.core.data.repository.ProfileRepository
 import dev.aalhdydy550.tunnel.core.data.repository.SettingsRepository
-import dev.aalhdydy550.tunnel.core.data.repository.SubscriptionRepository
 import dev.aalhdydy550.tunnel.core.data.routing.RoutingDataManager
 import dev.aalhdydy550.tunnel.core.data.routing.RoutingDataStatus
 import dev.aalhdydy550.tunnel.core.data.routing.RoutingFallback
@@ -44,7 +43,6 @@ class ProfilesViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val profileRepository: ProfileRepository,
     private val settingsRepository: SettingsRepository,
-    private val subscriptionRepository: SubscriptionRepository,
 ) : ViewModel() {
 
     val profiles: StateFlow<List<Profile>> = profileRepository.profiles
@@ -61,19 +59,6 @@ class ProfilesViewModel @Inject constructor(
 
     val adsBlocking: StateFlow<Boolean> = settingsRepository.adsBlocking
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
-
-    /**
-     * True when the list contains servers from the built-in default
-     * free subscription — the servers screen then shows the public /
-     * free warning (slow, unstable, never for logins or banking).
-     */
-    val hasPublicFreeServers: StateFlow<Boolean> = combine(
-        profileRepository.profiles,
-        subscriptionRepository.subscriptions,
-    ) { profiles, subscriptions ->
-        val defaultId = subscriptions.firstOrNull { it.isDefault }?.id
-        defaultId != null && profiles.any { it.subscriptionId == defaultId }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     private val _latency = MutableStateFlow<Map<Long, Long?>>(emptyMap())
     val latency: StateFlow<Map<Long, Long?>> = _latency.asStateFlow()

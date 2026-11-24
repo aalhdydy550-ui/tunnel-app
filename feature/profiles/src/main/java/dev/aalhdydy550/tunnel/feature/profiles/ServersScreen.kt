@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.net.VpnService
-import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -45,7 +44,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import dev.aalhdydy550.tunnel.core.data.model.Profile
 import dev.aalhdydy550.tunnel.core.data.routing.RoutingDataState
 import dev.aalhdydy550.tunnel.core.ui.R as CoreUiR
 import dev.aalhdydy550.tunnel.core.ui.components.ProfileRow
@@ -84,7 +82,6 @@ fun ServersScreen(
 
     val profiles by profilesViewModel.profiles.collectAsState()
     val selectedId by profilesViewModel.selectedProfileId.collectAsState()
-    val hasPublicFreeServers by profilesViewModel.hasPublicFreeServers.collectAsState()
     val latency by profilesViewModel.latency.collectAsState()
     val latencyTesting by profilesViewModel.latencyTesting.collectAsState()
     val selectingFastest by profilesViewModel.selectingFastest.collectAsState()
@@ -182,27 +179,6 @@ fun ServersScreen(
                 },
             )
         }
-        // The list contains public free servers (default subscription):
-        // say so plainly — slow/unstable, never for logins or banking.
-        if (hasPublicFreeServers) {
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                    ),
-                ) {
-                    Text(
-                        text = "تنبيه: بعض الخوادم هنا من الاشتراك المجاني " +
-                            "الافتراضي — " +
-                            "خوادم عامة مجانية قد تكون بطيئة أو غير مستقرة، " +
-                            "ولا تستخدمها لتسجيل الدخول أو في البنوك.",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(12.dp),
-                    )
-                }
-            }
-        }
         // While a latency measurement is running (it starts
         // automatically when the server list opens), show a hint.
         item {
@@ -218,9 +194,8 @@ fun ServersScreen(
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        text = "لا توجد خوادم بعد — الاشتراك المجاني الافتراضي " +
-                            "يُضاف ويُحدَّث تلقائيًا عند توفر الإنترنت، أو " +
-                            "استورد رابطًا من شاشة «استيراد».",
+                        text = "لا توجد خوادم بعد — استورد روابط أو أضف " +
+                            "اشتراكًا من شاشة «استيراد».",
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(16.dp),
                     )
