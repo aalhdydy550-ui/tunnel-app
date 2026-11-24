@@ -6,6 +6,7 @@ import dev.aalhdydy550.tunnel.core.data.backup.importProfilesFromJson
 import dev.aalhdydy550.tunnel.core.data.model.Profile
 import dev.aalhdydy550.tunnel.core.data.model.ProfileType
 import dev.aalhdydy550.tunnel.core.data.model.isSameServer
+import dev.aalhdydy550.tunnel.core.data.profile.OvpnConfParser
 import dev.aalhdydy550.tunnel.core.data.profile.ProfileLinkParser
 import dev.aalhdydy550.tunnel.core.data.profile.WireGuardConfParser
 import dev.aalhdydy550.tunnel.core.database.ProfileDao
@@ -20,8 +21,8 @@ import javax.inject.Singleton
 
 /**
  * Profile storage + import. All parsing is delegated to the pure-Kotlin
- * parsers ([ProfileLinkParser], [WireGuardConfParser]) so the import rules
- * are unit-tested without Android.
+ * parsers ([ProfileLinkParser], [WireGuardConfParser], [OvpnConfParser])
+ * so the import rules are unit-tested without Android.
  */
 @Singleton
 class ProfileRepository @Inject constructor(
@@ -85,10 +86,12 @@ class ProfileRepository @Inject constructor(
      * Dispatch by content: a locked export (`aytun://v1.…`) is
      * unlocked with [password] first (without a password it reports
      * the locked-export message instead of "invalid JSON"); a
-     * `[Interface]` block is a WireGuard `.conf`; text starting with
-     * `{` is a raw sing-box JSON configuration; text starting with
-     * `[` is a JSON backup produced by [exportToJson]; anything else
-     * is parsed line-by-line as proxy links.
+     * `[Interface]` block is a WireGuard `.conf`; a `.ovpn` file name
+     * — or pasted text that looks like an `.ovpn` file (a `remote`
+     * line plus a `dev tun` line) — is an OpenVPN `.ovpn`; text
+     * starting with `{` is a raw sing-box JSON configuration; text
+     * starting with `[` is a JSON backup produced by [exportToJson];
+     * anything else is parsed line-by-line as proxy links.
      *
      * [password] is optional for backward compatibility: every
      * existing call without a password keeps working as before.
@@ -126,6 +129,28 @@ class ProfileRepository @Inject constructor(
                 ProfileLinkParser.ImportResult(listOf(profile), emptyList())
             } catch (e: IllegalArgumentException) {
                 ProfileLinkParser.ImportResult(emptyList(), listOf(e.message ?: "invalid WireGuard config"))
+            }
+        }
+        // OpenVPN `.ovpn` next, before the JSON checks below: the link
+        // parser would otherwise swallow it as "no valid links"
+        // (the `.conf` lesson). Detection is by file extension first
+        // (the file picker passes the file name), by content second
+        // (pasted text has no file name): a `remote` line plus a
+        // `dev tun` line is unmistakably an `.ovpn` file. The content
+        // check is line-anchored on purpose — a JSON backup of a list
+        // that already contains an OpenVPN profile embeds the same
+        // two words inside its `outbound_json` string, mid-line, and
+        // must still reach the `[` branch below as a backup, not be
+        // misrouted here as a lone `.ovpn` file.
+        val looksLikeOvpn = fileName.lowercase().endsWith(".ovpn") ||
+            (trimmed.lineSequence().any { it.trim().startsWith("remote ") } &&
+                trimmed.lineSequence().any { it.trim().startsWith("dev tun") })
+        if (looksLikeOvpn) {
+            return try {
+                val profile = OvpnConfParser.parseConf(trimmed, fileName)
+                ProfileLinkParser.ImportResult(listOf(profile), emptyList())
+            } catch (e: IllegalArgumentException) {
+                ProfileLinkParser.ImportResult(emptyList(), listOf(e.message ?: "invalid OpenVPN config"))
             }
         }
         if (trimmed.startsWith("[")) {
