@@ -299,6 +299,16 @@ class TunnelVpnService : VpnService() {
                 // service: revive the last session, if there is one.
                 val session = lastSessionStore.load()
                 if (session != null) {
+                    if (session.isProxy) {
+                        // A proxy session belongs to ProxyOnlyService:
+                        // reviving it here would start a VPN engine
+                        // fighting over the same local proxy port.
+                        TunnelEventLog.log(
+                            "proxy session cannot be revived by the VPN service",
+                        )
+                        stopSelf()
+                        return Service.START_NOT_STICKY
+                    }
                     if (session.isInjector) {
                         // An injector session cannot be revived: the
                         // SSH credentials live in memory only and

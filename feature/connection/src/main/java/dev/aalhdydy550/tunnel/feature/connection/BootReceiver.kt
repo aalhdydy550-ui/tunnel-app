@@ -21,6 +21,13 @@ import javax.inject.Inject
  * A deliberate user stop clears the saved session, so a stopped tunnel
  * never restarts itself.
  *
+ * The session is revived by the service that ran it: a proxy-only
+ * session ([LastSessionStore.Session.isProxy]) is restored through
+ * [ProxyOnlyService] — it needs no VPN permission at all — while a
+ * normal session goes through [TunnelVpnService] as before.
+ * Reviving a proxy session through the VPN service would ask for the
+ * VPN permission for nothing and break the meaning of the mode.
+ *
  * Starting a foreground service from BOOT_COMPLETED is one of the
  * cases Android explicitly allows (no background-start restriction).
  *
@@ -43,16 +50,25 @@ class BootReceiver : BroadcastReceiver() {
             if (!autoStart) return
             val session = LastSessionStore(context).load() ?: return
             Log.i(TAG, "boot: restoring last session (${session.profileName})")
-            ContextCompat.startForegroundService(
-                context,
+            val startIntent = if (session.isProxy) {
+                ProxyOnlyService.startIntent(
+                    context,
+                    session.profileId,
+                    session.profileName,
+                    session.profileType,
+                    session.configJson,
+                    session.proxyPort,
+                )
+            } else {
                 TunnelVpnService.startIntent(
                     context,
                     session.profileId,
                     session.profileName,
                     session.profileType,
                     session.configJson,
-                ),
-            )
+                )
+            }
+            ContextCompat.startForegroundService(context, startIntent)
         } catch (e: Exception) {
             Log.w(TAG, "boot restore failed", e)
         }

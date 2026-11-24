@@ -16,6 +16,8 @@ import dev.aalhdydy550.tunnel.core.data.repository.DnsPreferenceStore
 import dev.aalhdydy550.tunnel.core.data.repository.LocalProxyStore
 import dev.aalhdydy550.tunnel.core.data.repository.PerAppProxyStore
 import dev.aalhdydy550.tunnel.core.data.repository.ProfileRepository
+import dev.aalhdydy550.tunnel.core.data.repository.ProxyMode
+import dev.aalhdydy550.tunnel.core.data.repository.ProxyModeStore
 import dev.aalhdydy550.tunnel.core.data.repository.SettingsRepository
 import dev.aalhdydy550.tunnel.core.data.routing.RoutingDataManager
 import dev.aalhdydy550.tunnel.core.data.singbox.SingBoxConfigBuilder
@@ -59,6 +61,19 @@ import javax.inject.Inject
  * [connect] skips `VpnService.prepare` for them entirely and stops
  * our own engine first. Results the user must see (app not
  * installed, invalid config, failure) arrive on [openVpnMessage].
+ *
+ * Proxy-only mode ([ProxyMode.PROXY], chosen in Settings) is a third
+ * route: [connect] skips `VpnService.prepare` for it as well and
+ * starts [ProxyOnlyService] instead — the same sing-box engine, but
+ * with a config that carries only the `mixed` inbound (no `tun`), so
+ * no app's traffic is routed automatically; only apps configured to
+ * use the local proxy (127.0.0.1:10808 by default) go through the
+ * tunnel. The three routes are decided by the pure function
+ * [resolveConnectRoute]. At most one engine runs at a time: every
+ * connect path stops the other engines first, and [disconnect]
+ * stops both of our services (stopping a service that is not
+ * running is a no-op) so no stale "which engine is active" state
+ * has to be tracked.
  */
 @HiltViewModel
 class ConnectionViewModel @Inject constructor(
@@ -69,6 +84,7 @@ class ConnectionViewModel @Inject constructor(
     private val dnsPreferenceStore: DnsPreferenceStore,
     private val localProxyStore: LocalProxyStore,
     private val allowInsecureStore: AllowInsecureStore,
+    private val proxyModeStore: ProxyModeStore,
     private val openVpnLauncher: OpenVpnLauncher,
 ) : ViewModel() {
 
@@ -112,15 +128,26 @@ class ConnectionViewModel @Inject constructor(
         get() = File(context.filesDir, RoutingDataManager.RULE_SETS_DIR_NAME)
 
     /** Starts the tunnel for [profile] (or the selected profile when
-     * null), asking for VPN permission first. OpenVPN profiles skip
-     * our permission flow entirely — see [connectViaOpenVpn]. */
+     * null), asking for VPN permission first — except on the two
+     * routes that never need it: OpenVPN profiles (the external app
+     * owns the permission) and proxy-only mode (no VPN interface
+     * at all). The route is decided by [resolveConnectRoute]. */
     fun connect(profile: Profile? = null) {
         viewModelScope.launch {
             val target = profile ?: selectedProfile.value ?: return@launch
             pendingProfile = target
-            if (target.type == ProfileType.OPENVPN) {
-                connectViaOpenVpn(target)
-                return@launch
+            when (resolveConnectRoute(target.type, proxyModeStore.mode.first())) {
+                ConnectRoute.OPENVPN -> {
+                    connectViaOpenVpn(target)
+                    return@launch
+                }
+                ConnectRoute.PROXY -> {
+                    connectViaProxy(target)
+                    return@launch
+                }
+                ConnectRoute.VPN -> {
+                    // Falls through to the permission check below.
+                }
             }
             if (VpnService.prepare(context) != null) {
                 _vpnPermissionRequest.emit(Unit)
@@ -134,27 +161,45 @@ class ConnectionViewModel @Inject constructor(
     fun onVpnPermissionGranted() {
         viewModelScope.launch {
             val target = pendingProfile ?: selectedProfile.value ?: return@launch
-            if (target.type == ProfileType.OPENVPN) {
-                // Defensive: the OpenVPN path never asks for our VPN
-                // permission, so reaching here means something routed
-                // it through the permission flow — send it to the
-                // launcher instead of starting our own service.
-                connectViaOpenVpn(target)
-                return@launch
+            when (resolveConnectRoute(target.type, proxyModeStore.mode.first())) {
+                ConnectRoute.OPENVPN -> {
+                    // Defensive: the OpenVPN path never asks for our VPN
+                    // permission, so reaching here means something routed
+                    // it through the permission flow — send it to the
+                    // launcher instead of starting our own service.
+                    connectViaOpenVpn(target)
+                }
+                ConnectRoute.PROXY -> {
+                    // Defensive: the proxy path never asks for VPN
+                    // permission either — reaching here means a wrong
+                    // routing, so go to the proxy service instead of
+                    // starting the VPN service.
+                    connectViaProxy(target)
+                }
+                ConnectRoute.VPN -> startServiceFor(target)
             }
-            startServiceFor(target)
         }
     }
 
+    /**
+     * Stops whatever is running: both of our services are stopped
+     * unconditionally (stopping a service that is not running is a
+     * no-op — this avoids tracking which engine is active, state
+     * that could go stale), and the external OpenVPN app is
+     * disconnected when it is connected.
+     */
     fun disconnect() {
         if (openVpnConnected) {
             openVpnConnected = false
             openVpnLauncher.disconnect()
-            return
         }
         ContextCompat.startForegroundService(
             context,
             TunnelVpnService.stopIntent(context),
+        )
+        ContextCompat.startForegroundService(
+            context,
+            ProxyOnlyService.stopIntent(context),
         )
     }
 
@@ -173,6 +218,14 @@ class ConnectionViewModel @Inject constructor(
                 TunnelVpnService.stopIntent(context),
             )
         }
+        // The proxy engine must not keep running either — the
+        // external app takes the VPN slot, and two engines must
+        // never run together (they would share the local proxy
+        // port). Stopping a service that is not running is a no-op.
+        ContextCompat.startForegroundService(
+            context,
+            ProxyOnlyService.stopIntent(context),
+        )
         when (val result = openVpnLauncher.connect(target)) {
             OpenVpnResult.Started -> {
                 openVpnConnected = true
@@ -195,16 +248,49 @@ class ConnectionViewModel @Inject constructor(
         }
     }
 
-    private suspend fun startServiceFor(profile: Profile) {
-        // Switching away from OpenVPN: stop the external app first —
-        // two VPN services cannot run together. Done here, after the
-        // VPN permission is granted, so a denied permission leaves
-        // the external tunnel running instead of leaving the user
-        // with no VPN at all.
+    /**
+     * Proxy-only path: no `VpnService.prepare()` is ever called here
+     * — there is no VPN interface to prepare. Our VPN engine is
+     * stopped first and the external OpenVPN app disconnected, then
+     * the same config is built with `proxyOnly = true` (only the
+     * `mixed` inbound remains) and [ProxyOnlyService] is started
+     * with the effective local proxy port.
+     */
+    private suspend fun connectViaProxy(target: Profile) {
+        ContextCompat.startForegroundService(
+            context,
+            TunnelVpnService.stopIntent(context),
+        )
         if (openVpnConnected) {
             openVpnLauncher.disconnect()
             openVpnConnected = false
         }
+        val config = buildConfigFor(target, proxyOnly = true)
+        val localProxy = localProxyStore.settings.first()
+        ContextCompat.startForegroundService(
+            context,
+            ProxyOnlyService.startIntent(
+                context = context,
+                profileId = target.id,
+                profileName = target.name,
+                profileType = target.type.name,
+                configJson = config,
+                proxyPort = SingBoxConfigBuilder.effectiveLocalProxyPort(localProxy.port),
+            ),
+        )
+        pendingProfile = target
+    }
+
+    /**
+     * Builds the sing-box document for [profile] from the stored
+     * settings, shared by the VPN path ([startServiceFor]) and the
+     * proxy path ([connectViaProxy]) so the two never drift apart.
+     * With [proxyOnly] the builder drops the `tun` inbound and
+     * keeps only `mixed` — the per-app lists live inside the `tun`
+     * inbound, so they are dropped with it (proxy mode has no
+     * per-app routing).
+     */
+    private suspend fun buildConfigFor(profile: Profile, proxyOnly: Boolean): String {
         // DNS: a pinned choice from the DNS screen wins; AUTO (the
         // default) keeps the previous behaviour — fastest public
         // resolver at connect time (best-effort, ~1.5s budget), falling
@@ -228,7 +314,7 @@ class ConnectionViewModel @Inject constructor(
         // as autoRoute/adsBlocking today).
         val localProxy = localProxyStore.settings.first()
         val allowInsecure = allowInsecureStore.enabled.first()
-        val config = SingBoxConfigBuilder.buildConfig(
+        return SingBoxConfigBuilder.buildConfig(
             profile = profile,
             autoRoute = settingsRepository.autoRoute.first(),
             strictRoute = settingsRepository.strictRoute.first(),
@@ -240,6 +326,29 @@ class ConnectionViewModel @Inject constructor(
             localProxyPort = localProxy.port,
             allowOtherDevices = localProxy.allowOtherDevices,
             allowInsecure = allowInsecure,
+            proxyOnly = proxyOnly,
+        )
+    }
+
+    private suspend fun startServiceFor(profile: Profile, proxyOnly: Boolean = false) {
+        // Switching away from OpenVPN: stop the external app first —
+        // two VPN services cannot run together. Done here, after the
+        // VPN permission is granted, so a denied permission leaves
+        // the external tunnel running instead of leaving the user
+        // with no VPN at all.
+        if (openVpnConnected) {
+            openVpnLauncher.disconnect()
+            openVpnConnected = false
+        }
+        val config = buildConfigFor(profile, proxyOnly = proxyOnly)
+        // The proxy engine must not keep running next to the VPN
+        // engine — they would share the local proxy port. Stopping
+        // a service that is not running is a no-op, and it is done
+        // here, just before the VPN service starts, so a config
+        // failure above leaves a running proxy untouched.
+        ContextCompat.startForegroundService(
+            context,
+            ProxyOnlyService.stopIntent(context),
         )
         ContextCompat.startForegroundService(
             context,
