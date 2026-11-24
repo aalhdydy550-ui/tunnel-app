@@ -67,6 +67,7 @@ fun ServersScreen(
     connectionViewModel: ConnectionViewModel,
     profilesViewModel: ProfilesViewModel,
     modifier: Modifier = Modifier,
+    onOpenFreeInternet: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -178,6 +179,33 @@ fun ServersScreen(
                     if (showServers) profilesViewModel.testLatency()
                 },
             )
+        }
+        // Free internet (SNI + SSH injector): entry point from the
+        // servers screen. Shown only when the caller wires the
+        // navigation (MainActivity passes it); the drawer entry is
+        // the other way in. The card says "try it on your SIM" —
+        // no network is marked as working before a real field test.
+        if (onOpenFreeInternet != null) {
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "نت مجاني",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            text = "جرّب النت المجاني عبر شبكات SNI + نفق SSH " +
+                                "باستخدام سيرفر SSH الخاص بك — غير موثّق حتى " +
+                                "تجرّبه على شريحتك.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedButton(onClick = { onOpenFreeInternet() }) {
+                            Text("فتح «نت مجاني»")
+                        }
+                    }
+                }
+            }
         }
         // While a latency measurement is running (it starts
         // automatically when the server list opens), show a hint.
