@@ -40,6 +40,18 @@ import kotlinx.serialization.json.putJsonObject
  * proxy port (default 10808, like Hamo) so local apps can proxy through
  * the tunnel without the VPN interface.
  *
+ * Proxy-only mode (no VPN): when `proxyOnly` is true, the TUN inbound
+ * (`tun-in`) is omitted entirely and only `mixed-in` remains — the
+ * engine then never touches the VPN interface, so the config can run
+ * under a plain foreground service with no `VpnService.prepare()`.
+ * Per-app lists (`include_package` / `exclude_package`) live inside the
+ * TUN inbound object only, so they are dropped automatically in
+ * proxy-only mode. `outbounds`, `route` and `dns` are unchanged.
+ * For [ProfileType.SINGBOX_JSON] profiles the stored document is still
+ * returned as-is even with `proxyOnly = true` (a documented limitation:
+ * the mode only takes effect there if the stored document already
+ * carries a `mixed` inbound).
+ *
  * Pure Kotlin: no Android dependency, unit-tested on the JVM.
  * The produced document is validated at runtime with `Libbox.checkConfig`
  * before the service starts.
@@ -117,6 +129,27 @@ object SingBoxConfigBuilder {
          * to before this parameter existed.
          */
         allowInsecure: Boolean = false,
+        /**
+         * Proxy-only mode (وضع البروكسي بدون VPN): when true, the
+         * TUN inbound (`tun-in`) is omitted entirely from `inbounds`
+         * and only the `mixed` inbound (`mixed-in`) remains, on the
+         * effective local proxy port
+         * ([effectiveLocalProxyPort]) and the listen address that
+         * follows [allowOtherDevices]. The engine then never opens
+         * the VPN interface, so no `VpnService.prepare()` is needed.
+         * Per-app lists ([includePackages]/[excludePackages]) are
+         * emitted inside the TUN inbound object only, so they are
+         * dropped automatically in this mode — there is no per-app
+         * routing without TUN. `outbounds`, `route` and `dns` are
+         * emitted exactly as in VPN mode. Default false: the current
+         * behaviour, byte-identical (TUN + mixed).
+         *
+         * Limitation (قيد موثق): for [ProfileType.SINGBOX_JSON]
+         * profiles the stored document is returned as-is even with
+         * `proxyOnly = true` — the mode only takes effect there if
+         * the stored document already carries a `mixed` inbound.
+         */
+        proxyOnly: Boolean = false,
     ): String {
         if (profile.type == ProfileType.SINGBOX_JSON) {
             return profile.outboundJson
@@ -188,34 +221,39 @@ object SingBoxConfigBuilder {
                 put("strategy", "ipv4_only")
             }
             putJsonArray("inbounds") {
-                add(
-                    buildJsonObject {
-                        put("type", "tun")
-                        put("tag", "tun-in")
-                        put("interface_name", "tun0")
-                        put("inet4_address", "172.19.0.1/30")
-                        put("inet6_address", "fdfe:dcba:9876::1/126")
-                        put("mtu", 9000)
-                        put("auto_route", autoRoute)
-                        put("strict_route", strictRoute)
-                        put("stack", "gvisor")
-                        put("sniff", true)
-                        put("domain_strategy", "ipv4_only")
-                        // Per-app proxy: at most one of the two lists
-                        // (see the `includePackages` parameter doc).
-                        val include = includePackages.filter { it.isNotBlank() }
-                        val exclude = excludePackages.filter { it.isNotBlank() }
-                        if (include.isNotEmpty()) {
-                            putJsonArray("include_package") {
-                                include.forEach { add(JsonPrimitive(it)) }
+                // Proxy-only mode: no TUN inbound at all — the
+                // engine never opens the VPN interface, only the
+                // mixed proxy below remains.
+                if (!proxyOnly) {
+                    add(
+                        buildJsonObject {
+                            put("type", "tun")
+                            put("tag", "tun-in")
+                            put("interface_name", "tun0")
+                            put("inet4_address", "172.19.0.1/30")
+                            put("inet6_address", "fdfe:dcba:9876::1/126")
+                            put("mtu", 9000)
+                            put("auto_route", autoRoute)
+                            put("strict_route", strictRoute)
+                            put("stack", "gvisor")
+                            put("sniff", true)
+                            put("domain_strategy", "ipv4_only")
+                            // Per-app proxy: at most one of the two lists
+                            // (see the `includePackages` parameter doc).
+                            val include = includePackages.filter { it.isNotBlank() }
+                            val exclude = excludePackages.filter { it.isNotBlank() }
+                            if (include.isNotEmpty()) {
+                                putJsonArray("include_package") {
+                                    include.forEach { add(JsonPrimitive(it)) }
+                                }
+                            } else if (exclude.isNotEmpty()) {
+                                putJsonArray("exclude_package") {
+                                    exclude.forEach { add(JsonPrimitive(it)) }
+                                }
                             }
-                        } else if (exclude.isNotEmpty()) {
-                            putJsonArray("exclude_package") {
-                                exclude.forEach { add(JsonPrimitive(it)) }
-                            }
-                        }
-                    },
-                )
+                        },
+                    )
+                }
                 // Hamo setting: local mixed (HTTP/SOCKS) proxy so local
                 // apps can use the tunnel without the VPN interface.
                 // Second inbound, after TUN; the listen address follows
