@@ -34,6 +34,11 @@ kotlin {
 dependencies {
     implementation(project(":core:ui"))
     implementation(project(":core:data"))
+    // Direct edge (not transitive): the free-internet code imports
+    // TunnelDatabaseHolder / ReferenceNetworkDao from :core:database,
+    // which :core:data exposes only as `implementation` — so a direct
+    // import would fail compilation without this line.
+    implementation(project(":core:database"))
 
     // libbox (sing-box for Android) is NOT on Maven Central.
     // The AAR is built from the sing-box v1.14.4 source by scripts/build-libbox.sh
@@ -46,6 +51,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.okhttp)
+    implementation(libs.jsch)
+    implementation(libs.kotlinx.serialization.json)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.material3)
