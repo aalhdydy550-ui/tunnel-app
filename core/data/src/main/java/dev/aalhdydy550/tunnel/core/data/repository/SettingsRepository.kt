@@ -5,9 +5,6 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
-import androidx.datastore.preferences.core.stringPreferencesKey
-import dev.aalhdydy550.tunnel.core.data.profile.DefaultSubscription
-import dev.aalhdydy550.tunnel.core.data.profile.SubscriptionFetcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -29,12 +26,6 @@ class SettingsRepository @Inject constructor(
         private val AUTO_START_ON_BOOT = booleanPreferencesKey("auto_start_on_boot")
         private val KILL_SWITCH_GUIDED = booleanPreferencesKey("kill_switch_guided")
         private val ADS_BLOCKING = booleanPreferencesKey("ads_blocking")
-        private val DEFAULT_SUBSCRIPTION_URL =
-            stringPreferencesKey("default_subscription_url")
-        private val DEFAULT_SUBSCRIPTION_ID =
-            longPreferencesKey("default_subscription_id")
-        private val DEFAULT_SUBSCRIPTION_ENABLED =
-            booleanPreferencesKey("default_subscription_enabled")
     }
 
     /** -1 means "no profile selected". */
@@ -88,46 +79,5 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setAdsBlocking(enabled: Boolean) {
         dataStore.edit { it[ADS_BLOCKING] = enabled }
-    }
-
-    /**
-     * The default free subscription's URL. The factory value is
-     * [DefaultSubscription.DEFAULT_URL]; the user replaces it from
-     * the import screen — it is a setting, never hard-coded behaviour.
-     */
-    val defaultSubscriptionUrl: Flow<String> = dataStore.data.map {
-        it[DEFAULT_SUBSCRIPTION_URL] ?: DefaultSubscription.DEFAULT_URL
-    }
-
-    /** The row id of the seeded default subscription, -1 when none. */
-    val defaultSubscriptionId: Flow<Long> = dataStore.data.map {
-        it[DEFAULT_SUBSCRIPTION_ID] ?: -1L
-    }
-
-    /**
-     * Whether the default free subscription is wanted at all. On by
-     * default; deleting the default subscription from the import
-     * screen turns it off, so the seeder never silently re-adds a
-     * subscription the user removed.
-     */
-    val defaultSubscriptionEnabled: Flow<Boolean> = dataStore.data.map {
-        it[DEFAULT_SUBSCRIPTION_ENABLED] ?: true
-    }
-
-    /** Validates (https, or loopback http for tests) and stores the URL. */
-    suspend fun setDefaultSubscriptionUrl(url: String) {
-        val cleanUrl = url.trim()
-        require(SubscriptionFetcher.isAllowedSubscriptionUrl(cleanUrl)) {
-            "subscription URL must use https:// (plain http:// is allowed only for loopback hosts)"
-        }
-        dataStore.edit { it[DEFAULT_SUBSCRIPTION_URL] = cleanUrl }
-    }
-
-    suspend fun setDefaultSubscriptionId(id: Long) {
-        dataStore.edit { it[DEFAULT_SUBSCRIPTION_ID] = id }
-    }
-
-    suspend fun setDefaultSubscriptionEnabled(enabled: Boolean) {
-        dataStore.edit { it[DEFAULT_SUBSCRIPTION_ENABLED] = enabled }
     }
 }
