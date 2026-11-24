@@ -2,6 +2,9 @@ package dev.aalhdydy550.tunnel.core.data.singbox
 
 import dev.aalhdydy550.tunnel.core.data.model.Profile
 import dev.aalhdydy550.tunnel.core.data.model.ProfileType
+import dev.aalhdydy550.tunnel.core.data.net.DEFAULT_LOCAL_PROXY_PORT
+import dev.aalhdydy550.tunnel.core.data.net.RESERVED_INJECTOR_SOCKS_PORT
+import dev.aalhdydy550.tunnel.core.data.net.localProxyListenAddress
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -31,6 +34,11 @@ import kotlinx.serialization.json.putJsonObject
  * the service layer, see `docs/PHASE2.md`). The SOCKS port is read from
  * the client document (`socks_port`, `socks5_port` or `local_port`) and
  * defaults to 1080.
+ *
+ * A second inbound is always emitted (except for [ProfileType.SINGBOX_JSON]
+ * profiles, returned as-is): a `mixed` inbound (`mixed-in`) on the local
+ * proxy port (default 10808, like Hamo) so local apps can proxy through
+ * the tunnel without the VPN interface.
  *
  * Pure Kotlin: no Android dependency, unit-tested on the JVM.
  * The produced document is validated at runtime with `Libbox.checkConfig`
@@ -66,6 +74,49 @@ object SingBoxConfigBuilder {
          * Cloudflare fallback.
          */
         dnsServer: String = DEFAULT_DNS_SERVER,
+        /**
+         * Per-app proxy (split tunneling): packages for the TUN
+         * inbound's `include_package` / `exclude_package` fields,
+         * which `TunnelVpnService` applies with
+         * `addAllowed/DisallowedApplication`. Both empty (the default)
+         * means every app goes through the tunnel — the behaviour
+         * before the per-app screen existed. At most one list is
+         * emitted: when both are passed, `include_package` wins and
+         * `exclude_package` is dropped (sing-box rejects a config
+         * carrying both). The only caller guarantees exclusivity
+         * (see `PerAppProxySettings`), so this is a defensive rule
+         * only.
+         */
+        includePackages: List<String> = emptyList(),
+        excludePackages: List<String> = emptyList(),
+        /**
+         * Local mixed (HTTP/SOCKS) proxy port, Hamo-style. The default
+         * ([DEFAULT_LOCAL_PROXY_PORT], 10808) matches
+         * Hamo's local proxy. Defensive fallback only: the settings
+         * storage layer rejects invalid values before they reach here,
+         * but a port outside 1024..65535 — or the injector's reserved
+         * SOCKS port ([RESERVED_INJECTOR_SOCKS_PORT],
+         * 10810) — is silently replaced with the default (see
+         * [effectiveLocalProxyPort]) instead of producing an invalid
+         * config.
+         */
+        localProxyPort: Int = DEFAULT_LOCAL_PROXY_PORT,
+        /**
+         * Whether the local mixed proxy listens on all interfaces
+         * (`0.0.0.0`, reachable from other devices on the LAN) instead
+         * of loopback only (`127.0.0.1`). Default false: local only.
+         */
+        allowOtherDevices: Boolean = false,
+        /**
+         * Skip TLS certificate verification for the profile's main
+         * outbound (`tls.insecure: true`). Applies ONLY when the built
+         * outbound already carries a `tls` object (VLESS/VMess/Trojan
+         * and similar); outbounds without TLS (WireGuard, plain SOCKS
+         * such as ZIVPN) are left untouched and no `tls` key is ever
+         * added. Default false: the outbound is emitted byte-identical
+         * to before this parameter existed.
+         */
+        allowInsecure: Boolean = false,
     ): String {
         if (profile.type == ProfileType.SINGBOX_JSON) {
             return profile.outboundJson
@@ -84,6 +135,21 @@ object SingBoxConfigBuilder {
                 json.parseToJsonElement(profile.outboundJson).jsonObject.toMutableMap()
             }
         outbound["tag"] = JsonPrimitive("proxy")
+
+        // Hamo setting: skip TLS verification for the main outbound.
+        // Only when the outbound already carries a "tls" object; when
+        // allowInsecure is false (the default) the outbound is not
+        // touched at all, and outbounds without TLS (WireGuard, plain
+        // SOCKS such as ZIVPN) never gain a "tls" key.
+        if (allowInsecure) {
+            val tls = outbound["tls"]
+            if (tls is JsonObject) {
+                outbound["tls"] = buildJsonObject {
+                    tls.forEach { (key, value) -> put(key, value) }
+                    put("insecure", true)
+                }
+            }
+        }
 
         // Ad blocking (only when the downloaded rule-set file exists —
         // the safe fallback omits the rule otherwise).
@@ -135,6 +201,35 @@ object SingBoxConfigBuilder {
                         put("stack", "gvisor")
                         put("sniff", true)
                         put("domain_strategy", "ipv4_only")
+                        // Per-app proxy: at most one of the two lists
+                        // (see the `includePackages` parameter doc).
+                        val include = includePackages.filter { it.isNotBlank() }
+                        val exclude = excludePackages.filter { it.isNotBlank() }
+                        if (include.isNotEmpty()) {
+                            putJsonArray("include_package") {
+                                include.forEach { add(it) }
+                            }
+                        } else if (exclude.isNotEmpty()) {
+                            putJsonArray("exclude_package") {
+                                exclude.forEach { add(it) }
+                            }
+                        }
+                    },
+                )
+                // Hamo setting: local mixed (HTTP/SOCKS) proxy so local
+                // apps can use the tunnel without the VPN interface.
+                // Second inbound, after TUN; the listen address follows
+                // allowOtherDevices and the port is the defensive
+                // effective port (see effectiveLocalProxyPort).
+                add(
+                    buildJsonObject {
+                        put("type", "mixed")
+                        put("tag", "mixed-in")
+                        put(
+                            "listen",
+                            localProxyListenAddress(allowOtherDevices),
+                        )
+                        put("listen_port", effectiveLocalProxyPort(localProxyPort))
                     },
                 )
             }
@@ -194,6 +289,23 @@ object SingBoxConfigBuilder {
         }
         return config.toString()
     }
+
+    /**
+     * Defensive effective local-proxy port. The settings storage layer
+     * rejects invalid values before they reach the builder, so this is
+     * a second line of defence only: a port outside the unprivileged
+     * range 1024..65535, or the injector's reserved SOCKS port
+     * ([RESERVED_INJECTOR_SOCKS_PORT], 10810 — the
+     * injector's own SOCKS5 server must never collide with the mixed
+     * inbound), falls back to the default
+     * ([DEFAULT_LOCAL_PROXY_PORT], 10808).
+     */
+    fun effectiveLocalProxyPort(port: Int): Int =
+        if (port in 1024..65535 && port != RESERVED_INJECTOR_SOCKS_PORT) {
+            port
+        } else {
+            DEFAULT_LOCAL_PROXY_PORT
+        }
 
     /**
      * Local SOCKS5 port of the external ZIVPN process, read from its
