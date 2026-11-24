@@ -439,4 +439,99 @@ class OvpnConfParserTest {
             """.trimIndent(),
         )
     }
+
+    @Test
+    fun `plain-line credentials after auth-user-pass are consumed and skipped as directives`() {
+        val profile = OvpnConfParser.parseConf(
+            """
+            client
+            dev tun
+            remote vpn.example.com 1194
+            auth-user-pass
+            alice
+            s3cret
+            """.trimIndent(),
+            "vpn.ovpn",
+        )
+        val out = outbound(profile.outboundJson)
+        assertEquals("alice", out["username"]!!.jsonPrimitive.content)
+        assertEquals("s3cret", out["password"]!!.jsonPrimitive.content)
+        val config = OvpnConfParser.configTextOf(profile.outboundJson)
+        // Verify they are preserved in config for the external app
+        assertTrue(config.contains("auth-user-pass\nalice\ns3cret"))
+    }
+
+    @Test
+    fun `username remote with a password is not swallowed but remains in config`() {
+        val profile = OvpnConfParser.parseConf(
+            """
+            client
+            dev tun
+            auth-user-pass
+            remote vpn.example.com 1194
+            mypassword
+            """.trimIndent(),
+            "vpn.ovpn",
+        )
+        val out = outbound(profile.outboundJson)
+        assertFalse("username" in out)
+        val config = OvpnConfParser.configTextOf(profile.outboundJson)
+        assertTrue(config.contains("remote vpn.example.com 1194"))
+        assertTrue(config.contains("mypassword"))
+    }
+
+    @Test
+    fun `username proto with a password is not swallowed but remains in config`() {
+        val profile = OvpnConfParser.parseConf(
+            """
+            client
+            dev tun
+            remote vpn.example.com 1194
+            auth-user-pass
+            proto tcp
+            mypassword
+            """.trimIndent(),
+            "vpn.ovpn",
+        )
+        val out = outbound(profile.outboundJson)
+        assertFalse("username" in out)
+        val config = OvpnConfParser.configTextOf(profile.outboundJson)
+        assertTrue(config.contains("proto tcp"))
+        assertTrue(config.contains("mypassword"))
+    }
+
+    @Test
+    fun `embedded auth-user-pass block with comments ignores them`() {
+        val profile = OvpnConfParser.parseConf(
+            """
+            client
+            dev tun
+            remote vpn.example.com 1194
+            <auth-user-pass>
+            # comment
+            alice
+            ; another comment
+            s3cret
+            </auth-user-pass>
+            """.trimIndent(),
+            "vpn.ovpn",
+        )
+        val out = outbound(profile.outboundJson)
+        assertEquals("alice", out["username"]!!.jsonPrimitive.content)
+        assertEquals("s3cret", out["password"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `quote-aware tokenisation handles spaces in arguments`() {
+        val profile = OvpnConfParser.parseConf(
+            """
+            client
+            dev tun
+            remote "example.com" 1194
+            """.trimIndent(),
+            "vpn.ovpn",
+        )
+        assertEquals("example.com", profile.server)
+        assertEquals(1194, profile.port)
+    }
 }
