@@ -44,6 +44,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import dev.aalhdydy550.tunnel.core.data.net.LatencyTester
 import dev.aalhdydy550.tunnel.core.data.routing.RoutingDataState
 import dev.aalhdydy550.tunnel.core.ui.R as CoreUiR
 import dev.aalhdydy550.tunnel.core.ui.components.ProfileRow
@@ -236,9 +237,14 @@ fun ServersScreen(
         if (showServers) {
             items(profiles, key = { it.id }) { profile ->
                 val ms = latency[profile.id]
+                // A profile that was never probed (UDP-only transport)
+                // shows no suffix at all — it was not tested, so
+                // "لا يرد" would be a lie. Only a probed profile
+                // that did not answer shows "لا يرد".
                 val latencySuffix = when {
-                    ms == null && latency.containsKey(profile.id) -> " — لا يرد"
                     ms != null -> " — ${ms}م.ث"
+                    LatencyTester.isUdpOnly(profile.type) -> ""
+                    latency.containsKey(profile.id) -> " — لا يرد"
                     else -> ""
                 }
                 ProfileRow(

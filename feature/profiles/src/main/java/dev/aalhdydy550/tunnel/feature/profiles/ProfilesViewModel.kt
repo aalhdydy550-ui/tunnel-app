@@ -128,7 +128,9 @@ class ProfilesViewModel @Inject constructor(
         viewModelScope.launch { profileRepository.delete(profile) }
     }
 
-    /** Probes every server's latency (TCP connect, like the original's testAllTcping). */
+    /** Probes every TCP-probeable server's latency (TCP connect,
+     * like the original's testAllTcping). UDP-only servers are never
+     * probed and get no latency entry (see [LatencyTester]). */
     fun testLatency() {
         if (_latencyTesting.value) return
         viewModelScope.launch {
@@ -141,12 +143,17 @@ class ProfilesViewModel @Inject constructor(
         }
     }
 
-    /** Tests latency, then selects the fastest server and returns it
-     * (null when no server answers or a test is already running — the
-     * caller then connects to the currently selected server). Awaits
-     * the selection write so the caller can connect to the picked
-     * server right away. Used by the connect button: pressing connect
-     * first picks the fastest, then connects. */
+    /** Tests latency, then selects the fastest server and returns it.
+     * When no server answers — the normal case for a list of UDP-only
+     * servers, which are never TCP-probed — falls back to the
+     * currently selected server, then to the first server in the
+     * list, so the connect button always has a server to connect to
+     * instead of doing nothing. Returns null only when the server
+     * list is empty or a test is already running (the caller then
+     * connects to the currently selected server). Awaits the
+     * selection write so the caller can connect to the picked server
+     * right away. Used by the connect button: pressing connect first
+     * picks the fastest, then connects. */
     suspend fun selectFastestAndWait(): Profile? {
         if (_latencyTesting.value) return null
         _selectingFastest.value = true
@@ -157,7 +164,11 @@ class ProfilesViewModel @Inject constructor(
         _latency.value = results.associate { it.profile.id to it.latencyMs }
         _latencyTesting.value = false
         _selectingFastest.value = false
-        val fastest = ProtocolSpeed.pickFastest(results)
+        val selected = profiles.value.firstOrNull { it.id == selectedProfileId.value }
+        val fastest = ProtocolSpeed.pickFastest(
+            results,
+            fallback = selected ?: profiles.value.firstOrNull(),
+        )
         fastest?.let { settingsRepository.setSelectedProfileId(it.id) }
         return fastest
     }

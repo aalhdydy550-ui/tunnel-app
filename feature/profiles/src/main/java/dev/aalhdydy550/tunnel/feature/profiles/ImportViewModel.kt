@@ -146,7 +146,9 @@ class ImportViewModel @Inject constructor(
             .takeIf { it.length == 2 && it.all { c -> c in 'A'..'Z' } }
             ?: ""
         for (profile in result.profiles) {
-            profileRepository.add(
+            // Same server twice must update the stored row, never
+            // add a second identical row (see addOrReplace).
+            profileRepository.addOrReplace(
                 if (code.isNotEmpty() && profile.countryCode.isEmpty()) {
                     profile.copy(countryCode = code)
                 } else {
