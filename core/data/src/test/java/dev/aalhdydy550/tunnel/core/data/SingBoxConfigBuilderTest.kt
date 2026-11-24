@@ -28,7 +28,14 @@ class SingBoxConfigBuilderTest {
         val root = json.parseToJsonElement(config).jsonObject
 
         val inbounds = root["inbounds"]!!.jsonArray
-        assertEquals(1, inbounds.size)
+        // TUN first, then the local mixed proxy inbound (Hamo settings:
+        // default 127.0.0.1:10808). Was 1 before the mixed inbound.
+        assertEquals(2, inbounds.size)
+        val mixed = inbounds[1].jsonObject
+        assertEquals("mixed", mixed["type"]!!.jsonPrimitive.content)
+        assertEquals("mixed-in", mixed["tag"]!!.jsonPrimitive.content)
+        assertEquals("127.0.0.1", mixed["listen"]!!.jsonPrimitive.content)
+        assertEquals(10808, mixed["listen_port"]!!.jsonPrimitive.content.toInt())
         val tun = inbounds[0].jsonObject
         assertEquals("tun", tun["type"]!!.jsonPrimitive.content)
         assertEquals(true, tun["auto_route"]!!.jsonPrimitive.content.toBoolean())
