@@ -23,6 +23,7 @@ import androidx.core.app.NotificationCompat
 import dev.aalhdydy550.tunnel.core.data.model.Profile
 import dev.aalhdydy550.tunnel.core.data.model.ProfileType
 import dev.aalhdydy550.tunnel.core.data.net.ReconnectPolicy
+import dev.aalhdydy550.tunnel.feature.connection.injector.InjectorSessionManager
 import io.nekohasekai.libbox.BridgeOptions
 import io.nekohasekai.libbox.BridgeSession
 import io.nekohasekai.libbox.ConnectionOwner
@@ -100,6 +101,18 @@ class TunnelVpnService : VpnService() {
         const val EXTRA_PROFILE_TYPE = "profile_type"
         const val EXTRA_CONFIG_JSON = "config_json"
 
+        // Injector («نت مجاني») extras. Present only when
+        // EXTRA_INJECTOR is true; the SSH password travels in the
+        // Intent (memory only) and is never written to disk.
+        const val EXTRA_INJECTOR = "injector"
+        const val EXTRA_INJECTOR_SSH_HOST = "injector_ssh_host"
+        const val EXTRA_INJECTOR_SSH_PORT = "injector_ssh_port"
+        const val EXTRA_INJECTOR_SSH_USER = "injector_ssh_user"
+        const val EXTRA_INJECTOR_SSH_PASSWORD = "injector_ssh_password"
+        const val EXTRA_INJECTOR_SNI = "injector_sni"
+        const val EXTRA_INJECTOR_NETWORK_ID = "injector_network_id"
+        const val EXTRA_INJECTOR_NETWORK_NAME = "injector_network_name"
+
         const val NOTIFICATION_ID = 1
         const val CHANNEL_ID = "tunnel"
 
@@ -121,6 +134,39 @@ class TunnelVpnService : VpnService() {
             Intent(context, TunnelVpnService::class.java).apply {
                 action = ACTION_STOP
             }
+
+        /**
+         * Builds the start intent for an injector session: the JSch
+         * SSH parameters travel as extras, the sing-box document
+         * (built by `InjectorConfig`) as [EXTRA_CONFIG_JSON], and the
+         * profile slot is a placeholder (id -1, type SSH, name =
+         * network name) — there is no stored profile behind it.
+         */
+        fun startInjectorIntent(
+            context: Context,
+            sshHost: String,
+            sshPort: Int,
+            sshUser: String,
+            sshPassword: String,
+            sniHost: String,
+            networkId: Long,
+            networkName: String,
+            configJson: String,
+        ): Intent = Intent(context, TunnelVpnService::class.java).apply {
+            action = ACTION_START
+            putExtra(EXTRA_PROFILE_ID, -1L)
+            putExtra(EXTRA_PROFILE_NAME, networkName)
+            putExtra(EXTRA_PROFILE_TYPE, ProfileType.SSH.name)
+            putExtra(EXTRA_CONFIG_JSON, configJson)
+            putExtra(EXTRA_INJECTOR, true)
+            putExtra(EXTRA_INJECTOR_SSH_HOST, sshHost)
+            putExtra(EXTRA_INJECTOR_SSH_PORT, sshPort)
+            putExtra(EXTRA_INJECTOR_SSH_USER, sshUser)
+            putExtra(EXTRA_INJECTOR_SSH_PASSWORD, sshPassword)
+            putExtra(EXTRA_INJECTOR_SNI, sniHost)
+            putExtra(EXTRA_INJECTOR_NETWORK_ID, networkId)
+            putExtra(EXTRA_INJECTOR_NETWORK_NAME, networkName)
+        }
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -137,6 +183,9 @@ class TunnelVpnService : VpnService() {
     private var currentProfileName: String = ""
     private var currentProfileType: String = ProfileType.VLESS.name
     private var currentConfig: String? = null
+    // True while the running tunnel is an injector session (JSch +
+    // SNI). Drives the reconnect guard in scheduleReconnect.
+    private var currentIsInjector: Boolean = false
 
     private var reconnectJob: Job? = null
     private var reconnectAttempt = 0
@@ -200,8 +249,21 @@ class TunnelVpnService : VpnService() {
                 val profileType = intent.getStringExtra(EXTRA_PROFILE_TYPE)
                     ?: ProfileType.VLESS.name
                 val configJson = intent.getStringExtra(EXTRA_CONFIG_JSON) ?: ""
+                val injectorParams =
+                    if (intent.getBooleanExtra(EXTRA_INJECTOR, false)) {
+                        InjectorSessionManager.Params(
+                            host = intent.getStringExtra(EXTRA_INJECTOR_SSH_HOST) ?: "",
+                            port = intent.getIntExtra(EXTRA_INJECTOR_SSH_PORT, 0),
+                            user = intent.getStringExtra(EXTRA_INJECTOR_SSH_USER) ?: "",
+                            password = intent.getStringExtra(EXTRA_INJECTOR_SSH_PASSWORD) ?: "",
+                            sniHost = intent.getStringExtra(EXTRA_INJECTOR_SNI) ?: "",
+                            networkId = intent.getLongExtra(EXTRA_INJECTOR_NETWORK_ID, -1L),
+                        )
+                    } else {
+                        null
+                    }
                 scope.launch {
-                    startTunnel(profileId, profileName, profileType, configJson)
+                    startTunnel(profileId, profileName, profileType, configJson, injectorParams)
                 }
             }
             null -> {
@@ -209,6 +271,18 @@ class TunnelVpnService : VpnService() {
                 // service: revive the last session, if there is one.
                 val session = lastSessionStore.load()
                 if (session != null) {
+                    if (session.isInjector) {
+                        // An injector session cannot be revived: the
+                        // SSH credentials live in memory only and
+                        // were lost with the process. Never restart
+                        // a half-built tunnel.
+                        TunnelEventLog.log(
+                            "injector session cannot be revived " +
+                                "(SSH credentials are not stored)",
+                        )
+                        stopSelf()
+                        return Service.START_NOT_STICKY
+                    }
                     TunnelEventLog.log("reviving last session after system kill")
                     scope.launch {
                         startTunnel(
@@ -254,6 +328,7 @@ class TunnelVpnService : VpnService() {
         profileName: String,
         profileType: String,
         configJson: String,
+        injectorParams: InjectorSessionManager.Params? = null,
     ) {
         startMutex.withLock {
             reconnectJob?.cancel()
@@ -264,9 +339,33 @@ class TunnelVpnService : VpnService() {
             currentProfileName = profileName
             currentProfileType = profileType
             currentConfig = configJson
+            currentIsInjector = injectorParams != null
             TunnelStateHolder.update(TunnelState.Starting(profileName))
             updateNotification("جارٍ الاتصال…")
             TunnelEventLog.log("starting: $profileName")
+            if (injectorParams != null) {
+                // Injector mode: the JSch SSH session (with its TLS +
+                // SNI socket and the local SOCKS forward) must be up
+                // BEFORE sing-box starts — the injector config points
+                // at 127.0.0.1:10810. On any failure, report a clear
+                // error and never start the engine.
+                val injectorResult = InjectorSessionManager.start(injectorParams)
+                if (injectorResult.isFailure) {
+                    val reason = injectorResult.exceptionOrNull()?.message
+                        ?: "injector connect failed"
+                    currentIsInjector = false
+                    TunnelEventLog.logDisconnect("injector failed: $reason")
+                    TunnelStateHolder.update(
+                        TunnelState.Error("فشل اتصال الحقن: $reason"),
+                    )
+                    updateNotification("فشل اتصال الحقن")
+                    return
+                }
+            } else {
+                // A normal tunnel must never inherit a stale injector
+                // session (and its SOCKS listener) from an earlier run.
+                InjectorSessionManager.stop()
+            }
             try {
                 val profile = Profile(
                     id = profileId,
@@ -278,13 +377,26 @@ class TunnelVpnService : VpnService() {
                 )
                 engine.start(profile, configJson)
             } catch (e: Exception) {
+                // The engine failed after the injector session came
+                // up: do not leave a live SSH session (and its SOCKS
+                // listener) behind with no tunnel attached to it.
+                if (injectorParams != null) {
+                    InjectorSessionManager.stop()
+                    currentIsInjector = false
+                }
                 val reason = e.message ?: "start failed"
                 TunnelEventLog.logDisconnect(reason)
                 TunnelStateHolder.update(TunnelState.Error(reason))
                 updateNotification("فشل الاتصال")
                 return
             }
-            lastSessionStore.save(profileId, profileName, profileType, configJson)
+            lastSessionStore.save(
+                profileId,
+                profileName,
+                profileType,
+                configJson,
+                isInjector = injectorParams != null,
+            )
             TunnelStateHolder.update(TunnelState.Started(profileName))
             startForegroundService()
             updateNotification("متصل — $profileName")
@@ -307,6 +419,10 @@ class TunnelVpnService : VpnService() {
             heartbeat.stop()
             speedMonitor.stop()
             stopEngineSilently()
+            // The injector SSH session dies with the tunnel, in every
+            // stop path (user stop, revoke, destroy, core request).
+            InjectorSessionManager.stop()
+            currentIsInjector = false
             if (userInitiated) {
                 lastSessionStore.clear()
                 userStopped = true
@@ -333,6 +449,18 @@ class TunnelVpnService : VpnService() {
     private suspend fun scheduleReconnect(reason: String) {
         if (userStopped) return
         if (currentConfig == null) return
+        if (currentIsInjector && !InjectorSessionManager.isLive) {
+            // Injector mode, SSH session dead: the credentials live in
+            // memory only, so the session cannot be rebuilt here.
+            // Restarting the engine alone would loop forever against
+            // a dead SOCKS endpoint — surface an error and stop.
+            TunnelEventLog.logDisconnect("injector session dead; manual reconnect required")
+            TunnelStateHolder.update(
+                TunnelState.Error("انقطع اتصال الحقن — أعد الاتصال يدويًا"),
+            )
+            updateNotification("انقطع اتصال الحقن")
+            return
+        }
         if (reconnectJob?.isActive == true) return
         reconnectJob = scope.launch {
             var attempt = reconnectAttempt + 1

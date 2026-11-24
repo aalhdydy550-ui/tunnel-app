@@ -29,14 +29,28 @@ class LastSessionStore(context: Context) {
         val profileName: String,
         val profileType: String,
         val configJson: String,
+        /**
+         * True when this session is an injector session (JSch + SNI).
+         * A saved injector session is only a marker: the SSH
+         * credentials live in memory only, so the service must NOT
+         * revive it after a system kill — see `TunnelVpnService`.
+         */
+        val isInjector: Boolean = false,
     )
 
-    fun save(profileId: Long, profileName: String, profileType: String, configJson: String) {
+    fun save(
+        profileId: Long,
+        profileName: String,
+        profileType: String,
+        configJson: String,
+        isInjector: Boolean = false,
+    ) {
         prefs.edit()
             .putLong(KEY_PROFILE_ID, profileId)
             .putString(KEY_PROFILE_NAME, profileName)
             .putString(KEY_PROFILE_TYPE, profileType)
             .putString(KEY_CONFIG_JSON, configJson)
+            .putBoolean(KEY_IS_INJECTOR, isInjector)
             .apply()
     }
 
@@ -48,6 +62,7 @@ class LastSessionStore(context: Context) {
             profileName = profileName,
             profileType = prefs.getString(KEY_PROFILE_TYPE, "VLESS") ?: "VLESS",
             configJson = configJson,
+            isInjector = prefs.getBoolean(KEY_IS_INJECTOR, false),
         )
     }
 
@@ -61,5 +76,6 @@ class LastSessionStore(context: Context) {
         private const val KEY_PROFILE_NAME = "profile_name"
         private const val KEY_PROFILE_TYPE = "profile_type"
         private const val KEY_CONFIG_JSON = "config_json"
+        private const val KEY_IS_INJECTOR = "is_injector"
     }
 }
