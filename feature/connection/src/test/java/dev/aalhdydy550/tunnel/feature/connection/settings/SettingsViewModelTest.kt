@@ -3,6 +3,8 @@ package dev.aalhdydy550.tunnel.feature.connection.settings
 import dev.aalhdydy550.tunnel.core.data.net.LocalProxySettings
 import dev.aalhdydy550.tunnel.core.data.repository.AllowInsecureStore
 import dev.aalhdydy550.tunnel.core.data.repository.LocalProxyStore
+import dev.aalhdydy550.tunnel.core.data.repository.ProxyMode
+import dev.aalhdydy550.tunnel.core.data.repository.ProxyModeStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -20,8 +22,9 @@ import org.junit.Test
 
 /**
  * Unit tests for [SettingsViewModel] with fake stores: default
- * loading, port validation, persistence, and the two immediate-save
- * toggles.
+ * loading, port validation, persistence, the immediate-save
+ * toggles (LAN sharing, allow-insecure, proxy mode), and restoring
+ * a saved proxy mode.
  *
  * `Dispatchers.Main` is an [UnconfinedTestDispatcher], so the
  * ViewModel's `viewModelScope` work runs synchronously and the state
@@ -65,6 +68,19 @@ class SettingsViewModelTest {
         }
     }
 
+    private class FakeProxyModeStore(
+        initial: ProxyMode = ProxyMode.VPN,
+    ) : ProxyModeStore {
+        private val _mode = MutableStateFlow(initial)
+        override val mode: Flow<ProxyMode> = _mode
+        val saved = mutableListOf<ProxyMode>()
+
+        override suspend fun setMode(mode: ProxyMode) {
+            saved += mode
+            _mode.value = mode
+        }
+    }
+
     @Before
     fun setUp() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
@@ -78,7 +94,8 @@ class SettingsViewModelTest {
     private fun viewModel(
         store: FakeLocalProxyStore = FakeLocalProxyStore(),
         insecure: FakeAllowInsecureStore = FakeAllowInsecureStore(),
-    ) = SettingsViewModel(store, insecure)
+        proxyMode: FakeProxyModeStore = FakeProxyModeStore(),
+    ) = SettingsViewModel(store, insecure, proxyMode)
 
     @Test
     fun `init loads the stored defaults`() {
@@ -194,5 +211,31 @@ class SettingsViewModelTest {
         assertTrue(vm.uiState.value.portError != null)
         vm.onPortInputChange("1080")
         assertNull(vm.uiState.value.portError)
+    }
+
+    @Test
+    fun `default proxy mode is vpn`() {
+        val vm = viewModel()
+        assertEquals(ProxyMode.VPN, vm.uiState.value.proxyMode)
+    }
+
+    @Test
+    fun `toggling proxy mode saves immediately and updates the state`() {
+        val proxyMode = FakeProxyModeStore()
+        val vm = viewModel(proxyMode = proxyMode)
+        vm.onProxyModeChange(ProxyMode.PROXY)
+        assertEquals(ProxyMode.PROXY, vm.uiState.value.proxyMode)
+        assertEquals(listOf(ProxyMode.PROXY), proxyMode.saved)
+        vm.onProxyModeChange(ProxyMode.VPN)
+        assertEquals(ProxyMode.VPN, vm.uiState.value.proxyMode)
+        assertEquals(listOf(ProxyMode.PROXY, ProxyMode.VPN), proxyMode.saved)
+    }
+
+    @Test
+    fun `init restores a saved proxy mode`() {
+        val proxyMode = FakeProxyModeStore(initial = ProxyMode.PROXY)
+        val vm = viewModel(proxyMode = proxyMode)
+        assertEquals(ProxyMode.PROXY, vm.uiState.value.proxyMode)
+        assertFalse(vm.uiState.value.isLoading)
     }
 }
