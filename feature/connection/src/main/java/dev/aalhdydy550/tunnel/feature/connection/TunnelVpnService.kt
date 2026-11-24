@@ -24,6 +24,7 @@ import dev.aalhdydy550.tunnel.core.data.model.Profile
 import dev.aalhdydy550.tunnel.core.data.model.ProfileType
 import dev.aalhdydy550.tunnel.core.data.net.ReconnectPolicy
 import dev.aalhdydy550.tunnel.feature.connection.injector.InjectorSessionManager
+import dev.aalhdydy550.tunnel.feature.connection.injector.payload.InjectorMode
 import io.nekohasekai.libbox.BridgeOptions
 import io.nekohasekai.libbox.BridgeSession
 import io.nekohasekai.libbox.ConnectionOwner
@@ -113,6 +114,16 @@ class TunnelVpnService : VpnService() {
         const val EXTRA_INJECTOR_NETWORK_ID = "injector_network_id"
         const val EXTRA_INJECTOR_NETWORK_NAME = "injector_network_name"
 
+        // Injector transport mode (item 3 — pass-through only, no
+        // logic here): "SNI" (default) or "HTTP". The HTTP fields
+        // are used only in HTTP mode: the carrier-proxy address
+        // (user-entered) and the built payload text (memory only,
+        // like the SSH password above).
+        const val EXTRA_INJECTOR_MODE = "injector_mode"
+        const val EXTRA_INJECTOR_PROXY_HOST = "injector_proxy_host"
+        const val EXTRA_INJECTOR_PROXY_PORT = "injector_proxy_port"
+        const val EXTRA_INJECTOR_PAYLOAD = "injector_payload"
+
         const val NOTIFICATION_ID = 1
         const val CHANNEL_ID = "tunnel"
 
@@ -152,6 +163,10 @@ class TunnelVpnService : VpnService() {
             networkId: Long,
             networkName: String,
             configJson: String,
+            mode: InjectorMode = InjectorMode.SNI,
+            proxyHost: String = "",
+            proxyPort: Int = 0,
+            payloadText: String = "",
         ): Intent = Intent(context, TunnelVpnService::class.java).apply {
             action = ACTION_START
             putExtra(EXTRA_PROFILE_ID, -1L)
@@ -166,6 +181,10 @@ class TunnelVpnService : VpnService() {
             putExtra(EXTRA_INJECTOR_SNI, sniHost)
             putExtra(EXTRA_INJECTOR_NETWORK_ID, networkId)
             putExtra(EXTRA_INJECTOR_NETWORK_NAME, networkName)
+            putExtra(EXTRA_INJECTOR_MODE, mode.name)
+            putExtra(EXTRA_INJECTOR_PROXY_HOST, proxyHost)
+            putExtra(EXTRA_INJECTOR_PROXY_PORT, proxyPort)
+            putExtra(EXTRA_INJECTOR_PAYLOAD, payloadText)
         }
     }
 
@@ -258,6 +277,15 @@ class TunnelVpnService : VpnService() {
                             password = intent.getStringExtra(EXTRA_INJECTOR_SSH_PASSWORD) ?: "",
                             sniHost = intent.getStringExtra(EXTRA_INJECTOR_SNI) ?: "",
                             networkId = intent.getLongExtra(EXTRA_INJECTOR_NETWORK_ID, -1L),
+                            mode = runCatching {
+                                InjectorMode.valueOf(
+                                    intent.getStringExtra(EXTRA_INJECTOR_MODE)
+                                        ?: InjectorMode.SNI.name,
+                                )
+                            }.getOrDefault(InjectorMode.SNI),
+                            proxyHost = intent.getStringExtra(EXTRA_INJECTOR_PROXY_HOST) ?: "",
+                            proxyPort = intent.getIntExtra(EXTRA_INJECTOR_PROXY_PORT, 0),
+                            payloadText = intent.getStringExtra(EXTRA_INJECTOR_PAYLOAD) ?: "",
                         )
                     } else {
                         null
