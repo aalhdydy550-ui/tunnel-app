@@ -1,6 +1,7 @@
 package dev.aalhdydy550.tunnel.core.data.repository
 
 import dev.aalhdydy550.tunnel.core.data.model.Subscription
+import dev.aalhdydy550.tunnel.core.data.profile.DefaultSubscription
 import dev.aalhdydy550.tunnel.core.data.profile.SubscriptionFetcher
 import dev.aalhdydy550.tunnel.core.database.ProfileDao
 import dev.aalhdydy550.tunnel.core.database.SubscriptionDao
@@ -22,8 +23,15 @@ import javax.inject.Singleton
  * user from a subscription that goes stale or hostile: the old
  * working servers stay until a fetch succeeds.
  *
- * The app ships no subscription URL. The URL is the user's own
- * (their provider's link), added explicitly from the import screen.
+ * The app ships one built-in subscription — the default public free
+ * list ([DefaultSubscription]) — added automatically at first run by
+ * [DefaultSubscriptionSeeder][dev.aalhdydy550.tunnel.core.data.repository.DefaultSubscriptionSeeder]
+ * and marked `isDefault`. Its URL is a user setting, not a constant:
+ * the user can replace it from the import screen. Every other
+ * subscription URL is the user's own (their provider's link), added
+ * explicitly from the import screen. No subscription URL is ever
+ * seeded with servers: the servers only arrive when the URL is
+ * fetched on the user's own phone, on their real network.
  */
 @Singleton
 class SubscriptionRepository @Inject constructor(
@@ -46,6 +54,64 @@ class SubscriptionRepository @Inject constructor(
         return subscriptionDao.insert(
             SubscriptionEntity(url = cleanUrl, name = displayName),
         )
+    }
+
+    /** One subscription by id, or null. */
+    suspend fun getSubscription(id: Long): Subscription? =
+        subscriptionDao.getById(id)?.toModel()
+
+    /**
+     * Ensures the built-in default subscription exists, and returns
+     * its row id.
+     *
+     * - No row yet (first run, or the URL was changed to one never
+     *   seen): inserts it named [DefaultSubscription.DEFAULT_NAME],
+     *   marked `isDefault`, and fetches it once.
+     * - The known default row exists ([existingDefaultId], or a row
+     *   with this URL the user added by hand): adopts it (marks
+     *   `isDefault`), updates its URL when it changed, and fetches it
+     *   once when the URL changed or it was never fetched. When
+     *   nothing changed and it was already fetched, no fetch happens
+     *   here — the daily [SubscriptionWorker][dev.aalhdydy550.tunnel.core.data.backup.SubscriptionWorker]
+     *   owns the regular refresh, so seeding costs one row + one
+     *   first fetch and nothing recurring.
+     *
+     * A failed fetch never throws here: [refreshSubscription] keeps
+     * the old profiles and records the error on the subscription, and
+     * the daily worker retries it.
+     */
+    suspend fun ensureDefaultSubscription(url: String, existingDefaultId: Long?): Long {
+        val cleanUrl = url.trim()
+        require(SubscriptionFetcher.isAllowedSubscriptionUrl(cleanUrl)) {
+            "subscription URL must use https:// (plain http:// is allowed only for loopback hosts)"
+        }
+        val known = existingDefaultId?.takeIf { it > 0 }
+            ?.let { subscriptionDao.getById(it) }
+            ?: subscriptionDao.getAllOnce().firstOrNull { it.url == cleanUrl }
+        if (known != null) {
+            val urlChanged = known.url != cleanUrl
+            val needsFetch = urlChanged || known.lastFetchedAt <= 0
+            if (urlChanged || !known.isDefault) {
+                subscriptionDao.update(
+                    known.copy(
+                        url = cleanUrl,
+                        isDefault = true,
+                        lastFetchedAt = if (urlChanged) 0 else known.lastFetchedAt,
+                    ),
+                )
+            }
+            if (needsFetch) refreshSubscription(known.id)
+            return known.id
+        }
+        val id = subscriptionDao.insert(
+            SubscriptionEntity(
+                url = cleanUrl,
+                name = DefaultSubscription.DEFAULT_NAME,
+                isDefault = true,
+            ),
+        )
+        refreshSubscription(id)
+        return id
     }
 
     /** Fetches one subscription and replaces its profiles. */
@@ -104,5 +170,6 @@ class SubscriptionRepository @Inject constructor(
         lastFetchedAt = lastFetchedAt,
         lastProfileCount = lastProfileCount,
         lastError = lastError,
+        isDefault = isDefault,
     )
 }
