@@ -7,14 +7,16 @@ import dagger.hilt.components.SingletonComponent
 import dev.aalhdydy550.tunnel.core.data.repository.AllowInsecureStore
 import dev.aalhdydy550.tunnel.core.data.repository.DataStoreAllowInsecureRepository
 import dev.aalhdydy550.tunnel.core.data.repository.DataStoreLocalProxyStore
+import dev.aalhdydy550.tunnel.core.data.repository.DataStoreKillSwitchStore
 import dev.aalhdydy550.tunnel.core.data.repository.DataStoreProxyModeStore
+import dev.aalhdydy550.tunnel.core.data.repository.KillSwitchStore
 import dev.aalhdydy550.tunnel.core.data.repository.LocalProxyStore
 import dev.aalhdydy550.tunnel.core.data.repository.ProxyModeStore
 import javax.inject.Singleton
 
 /**
  * Binds the Hamo settings stores (local proxy + allow insecure +
- * proxy mode) to their interfaces. Kept in its own module so
+ * proxy mode + kill switch) to their interfaces. Kept in its own module so
  * [DataModule] — and the existing settings — are untouched.
  */
 @Module
@@ -38,4 +40,10 @@ abstract class HamoSettingsModule {
     abstract fun bindProxyModeStore(
         impl: DataStoreProxyModeStore,
     ): ProxyModeStore
+
+    @Binds
+    @Singleton
+    abstract fun bindKillSwitchStore(
+        impl: DataStoreKillSwitchStore,
+    ): KillSwitchStore
 }
