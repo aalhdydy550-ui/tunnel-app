@@ -1,0 +1,123 @@
+package dev.aalhdydy550.tunnel.feature.connection.settings
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.aalhdydy550.tunnel.core.data.net.DEFAULT_LOCAL_PROXY_PORT
+import dev.aalhdydy550.tunnel.core.data.net.validateLocalProxyPort
+import dev.aalhdydy550.tunnel.core.data.repository.AllowInsecureStore
+import dev.aalhdydy550.tunnel.core.data.repository.LocalProxyStore
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+/** Screen state for the Settings screen. */
+data class SettingsUiState(
+    val isLoading: Boolean = true,
+    val port: Int = DEFAULT_LOCAL_PROXY_PORT,
+    val portInput: String = DEFAULT_LOCAL_PROXY_PORT.toString(),
+    val portError: String? = null,
+    val allowOtherDevices: Boolean = false,
+    val allowInsecure: Boolean = false,
+)
+
+/**
+ * Settings screen state + actions.
+ *
+ * - The local proxy port is only persisted once the typed value passes
+ *   [validateLocalProxyPort]; otherwise the error is shown and nothing
+ *   is stored. The port applies at the next connect.
+ * - LAN sharing ([onAllowOtherDevicesChange]) and allow-insecure
+ *   ([onAllowInsecureChange]) save immediately on every toggle, like
+ *   the other settings screens; the screen warns about both.
+ * - The stored port is adopted into the text field only when it
+ *   actually changes, so toggling a switch never wipes a port the user
+ *   is still typing.
+ */
+@HiltViewModel
+class SettingsViewModel @Inject constructor(
+    private val store: LocalProxyStore,
+    private val allowInsecureStore: AllowInsecureStore,
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow(SettingsUiState())
+    val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            store.settings.collect { settings ->
+                _uiState.update { current ->
+                    // Adopt the stored port into the field only when it
+                    // changed (a successful save, or an external change);
+                    // otherwise keep the text the user is editing.
+                    val portInput = if (settings.port != current.port) {
+                        settings.port.toString()
+                    } else {
+                        current.portInput
+                    }
+                    current.copy(
+                        port = settings.port,
+                        portInput = portInput,
+                        allowOtherDevices = settings.allowOtherDevices,
+                        isLoading = false,
+                    )
+                }
+            }
+        }
+        viewModelScope.launch {
+            allowInsecureStore.enabled.collect { enabled ->
+                _uiState.update { it.copy(allowInsecure = enabled, isLoading = false) }
+            }
+        }
+    }
+
+    fun onPortInputChange(text: String) {
+        _uiState.update { it.copy(portInput = text, portError = null) }
+    }
+
+    /** Validates the typed port and, when valid, persists it. */
+    fun onSavePort() {
+        val raw = _uiState.value.portInput.trim()
+        val port = raw.toIntOrNull()
+        if (port == null) {
+            _uiState.update {
+                it.copy(portError = "أدخل رقم بورت صحيحًا — مثال: 10808")
+            }
+            return
+        }
+        val error = validateLocalProxyPort(port)
+        if (error != null) {
+            _uiState.update { it.copy(portError = error) }
+            return
+        }
+        viewModelScope.launch {
+            val saved = store.setPort(port)
+            if (saved) {
+                _uiState.update {
+                    it.copy(
+                        port = port,
+                        portInput = port.toString(),
+                        portError = null,
+                    )
+                }
+            } else {
+                _uiState.update {
+                    it.copy(portError = "تعذّر حفظ البورت — حاول مجددًا.")
+                }
+            }
+        }
+    }
+
+    fun onAllowOtherDevicesChange(allow: Boolean) {
+        _uiState.update { it.copy(allowOtherDevices = allow) }
+        viewModelScope.launch { store.setAllowOtherDevices(allow) }
+    }
+
+    fun onAllowInsecureChange(allow: Boolean) {
+        _uiState.update { it.copy(allowInsecure = allow) }
+        viewModelScope.launch { allowInsecureStore.setEnabled(allow) }
+    }
+}
