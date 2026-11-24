@@ -1,6 +1,7 @@
 package dev.aalhdydy550.tunnel.core.data
 
 import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
 import dev.aalhdydy550.tunnel.core.data.model.ProfileType
 import dev.aalhdydy550.tunnel.core.data.profile.ProfileLinkParser
@@ -28,7 +29,11 @@ class QrCodeDecoderTest {
 
     /** Renders [text] as a QR code and returns its ARGB pixels + size. */
     private fun qrPixels(text: String, size: Int = 256): Pair<IntArray, Int> {
-        val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, size, size)
+        // UTF-8 hint: without it ZXing falls back to ISO-8859-1 and
+        // replaces characters outside it (for example "—") with '?',
+        // so the decoded text would not round-trip the input.
+        val hints = mapOf(EncodeHintType.CHARACTER_SET to "UTF-8")
+        val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, size, size, hints)
         val pixels = IntArray(size * size)
         for (y in 0 until size) {
             for (x in 0 until size) {
