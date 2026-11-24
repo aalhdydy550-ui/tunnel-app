@@ -52,6 +52,25 @@ class SpeedMonitorTest {
     }
 
     @Test
+    fun `cumulative exposes the last sampled raw counters`() = runTest {
+        var calls = 0
+        val monitor = SpeedMonitor(
+            scope = this,
+            sample = {
+                calls++
+                (calls * 1_000L) to (calls * 500L)
+            },
+            intervalMs = 100,
+        )
+        monitor.start()
+        advanceTimeBy(250)
+        // 3 samples (initial + 2 intervals): (3000, 1500).
+        assertEquals(3_000L to 1_500L, monitor.cumulative.value)
+        monitor.stop()
+        assertEquals(0L to 0L, monitor.cumulative.value)
+    }
+
+    @Test
     fun `a second start while running is ignored`() = runTest {
         var calls = 0
         val monitor = SpeedMonitor(
