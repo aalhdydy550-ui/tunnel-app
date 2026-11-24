@@ -7,6 +7,8 @@ import dev.aalhdydy550.tunnel.core.data.net.DEFAULT_LOCAL_PROXY_PORT
 import dev.aalhdydy550.tunnel.core.data.net.validateLocalProxyPort
 import dev.aalhdydy550.tunnel.core.data.repository.AllowInsecureStore
 import dev.aalhdydy550.tunnel.core.data.repository.LocalProxyStore
+import dev.aalhdydy550.tunnel.core.data.repository.ProxyMode
+import dev.aalhdydy550.tunnel.core.data.repository.ProxyModeStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,6 +24,8 @@ data class SettingsUiState(
     val portError: String? = null,
     val allowOtherDevices: Boolean = false,
     val allowInsecure: Boolean = false,
+    /** Connection mode: [ProxyMode.VPN] (default) or proxy-only. */
+    val proxyMode: ProxyMode = ProxyMode.VPN,
 )
 
 /**
@@ -33,6 +37,11 @@ data class SettingsUiState(
  * - LAN sharing ([onAllowOtherDevicesChange]) and allow-insecure
  *   ([onAllowInsecureChange]) save immediately on every toggle, like
  *   the other settings screens; the screen warns about both.
+ * - The connection mode ([onProxyModeChange]) also saves
+ *   immediately: VPN (the default, whole-device tunnel) or
+ *   proxy-only (no VPN interface — only apps configured to use the
+ *   local proxy go through the tunnel). It applies at the next
+ *   connect.
  * - The stored port is adopted into the text field only when it
  *   actually changes, so toggling a switch never wipes a port the user
  *   is still typing.
@@ -41,6 +50,7 @@ data class SettingsUiState(
 class SettingsViewModel @Inject constructor(
     private val store: LocalProxyStore,
     private val allowInsecureStore: AllowInsecureStore,
+    private val proxyModeStore: ProxyModeStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -70,6 +80,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             allowInsecureStore.enabled.collect { enabled ->
                 _uiState.update { it.copy(allowInsecure = enabled, isLoading = false) }
+            }
+        }
+        viewModelScope.launch {
+            proxyModeStore.mode.collect { mode ->
+                _uiState.update { it.copy(proxyMode = mode, isLoading = false) }
             }
         }
     }
@@ -119,5 +134,10 @@ class SettingsViewModel @Inject constructor(
     fun onAllowInsecureChange(allow: Boolean) {
         _uiState.update { it.copy(allowInsecure = allow) }
         viewModelScope.launch { allowInsecureStore.setEnabled(allow) }
+    }
+
+    fun onProxyModeChange(mode: ProxyMode) {
+        _uiState.update { it.copy(proxyMode = mode) }
+        viewModelScope.launch { proxyModeStore.setMode(mode) }
     }
 }

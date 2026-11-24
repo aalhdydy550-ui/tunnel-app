@@ -23,12 +23,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import dev.aalhdydy550.tunnel.core.data.repository.ProxyMode
 import dev.aalhdydy550.tunnel.feature.connection.TcpNoDelayViewModel
 
 /**
  * Settings screen (drawer → «الإعدادات»):
  *
- *   local proxy port (field + save button) → LAN sharing switch with
+ *   local proxy port (field + save button) → connection mode
+ *   (VPN / proxy-only switch) → LAN sharing switch with
  *   its warning → allowInsecure switch with its warning → TCP No
  *   Delay switch.
  *
@@ -96,6 +98,45 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "الافتراضي 10808 — يسري على الاتصال التالي",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        // Connection mode: VPN (whole-device tunnel) or proxy-only.
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "وضع البروكسي فقط",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Switch(
+                        checked = state.proxyMode == ProxyMode.PROXY,
+                        onCheckedChange = {
+                            settingsViewModel.onProxyModeChange(
+                                if (it) ProxyMode.PROXY else ProxyMode.VPN,
+                            )
+                        },
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "وضع البروكسي لا يوجّه ترافيك أي تطبيق تلقائيًا — " +
+                        "يعمل فقط للتطبيقات التي تضبط بروكسي يدويًا على " +
+                        "127.0.0.1:10808؛ وبلا per-app وبلا kill-switch " +
+                        "وبلا التقاط DNS",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "يسري على الاتصال التالي",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
