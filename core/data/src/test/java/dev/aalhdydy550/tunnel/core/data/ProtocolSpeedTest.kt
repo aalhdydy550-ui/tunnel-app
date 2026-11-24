@@ -97,5 +97,7 @@ class ProtocolSpeedTest {
         assertEquals(0, ProtocolSpeed.speedRank(ProfileType.HYSTERIA2))
         assertEquals(1, ProtocolSpeed.speedRank(ProfileType.WIREGUARD))
         assertEquals(3, ProtocolSpeed.speedRank(ProfileType.VLESS))
+        // OpenVPN runs through the external app — slowest rank.
+        assertEquals(10, ProtocolSpeed.speedRank(ProfileType.OPENVPN))
     }
 }

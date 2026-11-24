@@ -1,5 +1,6 @@
 package dev.aalhdydy550.tunnel.core.data
 
+import dev.aalhdydy550.tunnel.core.data.backup.exportProfilesToJson
 import dev.aalhdydy550.tunnel.core.data.model.Profile
 import dev.aalhdydy550.tunnel.core.data.model.ProfileType
 import dev.aalhdydy550.tunnel.core.data.model.isSameServer
@@ -103,6 +104,91 @@ class ProfileRepositoryTest {
     )
 
     private fun repository(dao: FakeProfileDao) = ProfileRepository(dao)
+
+    private val ovpnText = """
+        client
+        dev tun
+        proto udp
+        remote vpn.example.com 1194
+        resolv-retry infinite
+        nobind
+    """.trimIndent()
+
+    @Test
+    fun `ovpn text with the ovpn extension routes to the OpenVPN parser`() {
+        val repo = repository(FakeProfileDao())
+        val result = repo.importFromText(ovpnText, "my-server.ovpn")
+        assertTrue(result.errors.toString(), result.errors.isEmpty())
+        assertEquals(1, result.profiles.size)
+        val profile = result.profiles[0]
+        assertEquals(ProfileType.OPENVPN, profile.type)
+        assertEquals("vpn.example.com", profile.server)
+        assertEquals(1194, profile.port)
+        assertEquals("my-server", profile.name)
+    }
+
+    @Test
+    fun `ovpn text without a file name routes by content, not to the link parser`() {
+        // The `.conf` lesson: content that looks like a config file
+        // must never fall through to the link parser ("no valid
+        // links") or the JSON branches.
+        val repo = repository(FakeProfileDao())
+        val result = repo.importFromText(ovpnText)
+        assertTrue(result.errors.toString(), result.errors.isEmpty())
+        assertEquals(1, result.profiles.size)
+        assertEquals(ProfileType.OPENVPN, result.profiles[0].type)
+        assertEquals("OpenVPN vpn.example.com", result.profiles[0].name)
+    }
+
+    @Test
+    fun `ovpn extension match ignores case`() {
+        val repo = repository(FakeProfileDao())
+        val result = repo.importFromText(ovpnText, "SERVER.OVPN")
+        assertEquals(1, result.profiles.size)
+        assertEquals(ProfileType.OPENVPN, result.profiles[0].type)
+    }
+
+    @Test
+    fun `invalid ovpn text reports the parser error instead of profiles`() {
+        val repo = repository(FakeProfileDao())
+        val result = repo.importFromText(
+            "client\ndev tun\nproto udp\n",
+            "broken.ovpn",
+        )
+        assertTrue(result.profiles.isEmpty())
+        assertEquals(1, result.errors.size)
+        assertTrue(result.errors[0].contains("remote"))
+    }
+
+    @Test
+    fun `a JSON backup containing an OpenVPN profile still restores as a backup`() {
+        // The backup embeds the normalised `.ovpn` text inside its
+        // `outbound_json` string (with the words "remote" and
+        // "dev tun" in it) — the line-anchored content check must
+        // not misroute it as a lone `.ovpn` file.
+        val repo = repository(FakeProfileDao())
+        val imported = repo.importFromText(ovpnText, "my-server.ovpn").profiles[0]
+        val backup = exportProfilesToJson(listOf(imported))
+        val restored = repo.importFromText(backup)
+        assertTrue(restored.errors.toString(), restored.errors.isEmpty())
+        assertEquals(1, restored.profiles.size)
+        assertEquals(ProfileType.OPENVPN, restored.profiles[0].type)
+        assertEquals("vpn.example.com", restored.profiles[0].server)
+        assertEquals(imported.outboundJson, restored.profiles[0].outboundJson)
+    }
+
+    @Test
+    fun `importing the same ovpn twice keeps one row`() = runTest {
+        val dao = FakeProfileDao()
+        val repo = repository(dao)
+        val first = repo.importFromText(ovpnText, "my-server.ovpn").profiles[0]
+        val second = repo.importFromText(ovpnText, "my-server.ovpn").profiles[0]
+        assertTrue(isSameServer(first, second))
+        val firstId = repo.addOrReplace(first)
+        val secondId = repo.addOrReplace(second)
+        assertEquals(firstId, secondId)
+        assertEquals(1, dao.count())
+    }
 
     @Test
     fun `importing the same WireGuard server twice keeps one row`() = runTest {

@@ -62,12 +62,15 @@ class LatencyTesterTest {
     }
 
     @Test
-    fun `isUdpOnly is true exactly for the four UDP-only transports`() {
+    fun `isUdpOnly is true exactly for the five UDP-only transports`() {
         for (type in listOf(
             ProfileType.WIREGUARD,
             ProfileType.HYSTERIA2,
             ProfileType.TUIC,
             ProfileType.ZIVPN,
+            // OpenVPN: the protocol differs per profile (TCP or UDP),
+            // so a TCP probe would lie about UDP servers.
+            ProfileType.OPENVPN,
         )) {
             assertTrue("$type must be UDP-only", LatencyTester.isUdpOnly(type))
         }
@@ -114,6 +117,7 @@ class LatencyTesterTest {
             Profile(name = "hy2", type = ProfileType.HYSTERIA2, server = "::1", port = closedPort, outboundJson = "{}"),
             Profile(name = "tuic", type = ProfileType.TUIC, server = "::1", port = closedPort, outboundJson = "{}"),
             Profile(name = "zivpn", type = ProfileType.ZIVPN, server = "::1", port = closedPort, outboundJson = "{}"),
+            Profile(name = "ovpn", type = ProfileType.OPENVPN, server = "::1", port = closedPort, outboundJson = "{}"),
             Profile(name = "vless", type = ProfileType.VLESS, server = "::1", port = closedPort, outboundJson = "{}"),
         )
         val results = LatencyTester.testAll(profiles, timeoutMs = 500)
