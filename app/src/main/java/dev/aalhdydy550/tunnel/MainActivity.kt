@@ -57,8 +57,11 @@ import dagger.hilt.android.AndroidEntryPoint
 import dev.aalhdydy550.tunnel.core.ui.R as CoreUiR
 import dev.aalhdydy550.tunnel.core.ui.TunnelTheme
 import dev.aalhdydy550.tunnel.feature.connection.ConnectionViewModel
+import dev.aalhdydy550.tunnel.feature.connection.TcpNoDelayViewModel
 import dev.aalhdydy550.tunnel.feature.connection.injector.FreeInternetScreen
 import dev.aalhdydy550.tunnel.feature.connection.injector.FreeInternetViewModel
+import dev.aalhdydy550.tunnel.feature.connection.settings.SettingsScreen
+import dev.aalhdydy550.tunnel.feature.connection.settings.SettingsViewModel
 import dev.aalhdydy550.tunnel.feature.profiles.ImportScreen
 import dev.aalhdydy550.tunnel.feature.profiles.ImportViewModel
 import dev.aalhdydy550.tunnel.feature.profiles.ProfilesViewModel
@@ -149,6 +152,14 @@ class MainActivity : ComponentActivity() {
                                 },
                             )
                             NavigationDrawerItem(
+                                label = { Text("الإعدادات") },
+                                selected = screen == Screen.SETTINGS,
+                                onClick = {
+                                    screen = Screen.SETTINGS
+                                    scope.launch { drawerState.close() }
+                                },
+                            )
+                            NavigationDrawerItem(
                                 label = { Text("المستودع على GitHub") },
                                 selected = false,
                                 onClick = {
@@ -182,7 +193,8 @@ class MainActivity : ComponentActivity() {
                                 ),
                                 navigationIcon = {
                                     if (screen == Screen.IMPORT ||
-                                        screen == Screen.FREE_INTERNET
+                                        screen == Screen.FREE_INTERNET ||
+                                        screen == Screen.SETTINGS
                                     ) {
                                         IconButton(onClick = { screen = Screen.SERVERS }) {
                                             Icon(
@@ -258,6 +270,10 @@ class MainActivity : ComponentActivity() {
                                 Screen.FREE_INTERNET -> FreeInternetScreen(
                                     viewModel = hiltViewModel<FreeInternetViewModel>(),
                                 )
+                                Screen.SETTINGS -> SettingsScreen(
+                                    settingsViewModel = hiltViewModel<SettingsViewModel>(),
+                                    tcpNoDelayViewModel = hiltViewModel<TcpNoDelayViewModel>(),
+                                )
                             }
                         }
                     }
@@ -300,5 +316,5 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private enum class Screen { SERVERS, IMPORT, FREE_INTERNET }
+    private enum class Screen { SERVERS, IMPORT, FREE_INTERNET, SETTINGS }
 }
