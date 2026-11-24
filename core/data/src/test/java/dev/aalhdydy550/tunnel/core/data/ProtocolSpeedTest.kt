@@ -49,12 +49,47 @@ class ProtocolSpeedTest {
     }
 
     @Test
-    fun `all unreachable returns null`() {
+    fun `all unreachable falls back to the first profile instead of null`() {
         val results = listOf(
             LatencyTester.LatencyResult(profile("dead1", ProfileType.HYSTERIA2), null),
             LatencyTester.LatencyResult(profile("dead2", ProfileType.VLESS), null),
         )
-        assertNull(ProtocolSpeed.pickFastest(results))
+        assertEquals("dead1", ProtocolSpeed.pickFastest(results)?.name)
+    }
+
+    @Test
+    fun `empty results return null`() {
+        assertNull(ProtocolSpeed.pickFastest(emptyList()))
+    }
+
+    @Test
+    fun `fallback profile wins over the first when nothing answers`() {
+        val selected = profile("selected", ProfileType.WIREGUARD)
+        val results = listOf(
+            LatencyTester.LatencyResult(profile("dead1", ProfileType.HYSTERIA2), null),
+            LatencyTester.LatencyResult(profile("dead2", ProfileType.VLESS), null),
+        )
+        assertEquals("selected", ProtocolSpeed.pickFastest(results, fallback = selected)?.name)
+    }
+
+    @Test
+    fun `a reachable server still wins over the fallback`() {
+        val selected = profile("selected", ProfileType.WIREGUARD)
+        val results = listOf(
+            LatencyTester.LatencyResult(profile("dead1", ProfileType.HYSTERIA2), null),
+            LatencyTester.LatencyResult(profile("alive", ProfileType.TROJAN), 90),
+        )
+        assertEquals("alive", ProtocolSpeed.pickFastest(results, fallback = selected)?.name)
+    }
+
+    @Test
+    fun `fallback is ignored when the first profile itself answers`() {
+        val selected = profile("selected", ProfileType.WIREGUARD)
+        val results = listOf(
+            LatencyTester.LatencyResult(profile("first", ProfileType.VLESS), 40),
+            LatencyTester.LatencyResult(profile("second", ProfileType.TROJAN), 90),
+        )
+        assertEquals("first", ProtocolSpeed.pickFastest(results, fallback = selected)?.name)
     }
 
     @Test

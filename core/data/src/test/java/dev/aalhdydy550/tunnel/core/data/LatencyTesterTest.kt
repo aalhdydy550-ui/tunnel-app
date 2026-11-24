@@ -1,8 +1,11 @@
 package dev.aalhdydy550.tunnel.core.data
 
+import dev.aalhdydy550.tunnel.core.data.model.Profile
+import dev.aalhdydy550.tunnel.core.data.model.ProfileType
 import dev.aalhdydy550.tunnel.core.data.net.LatencyTester
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -56,5 +59,74 @@ class LatencyTesterTest {
         } finally {
             open.close()
         }
+    }
+
+    @Test
+    fun `isUdpOnly is true exactly for the four UDP-only transports`() {
+        for (type in listOf(
+            ProfileType.WIREGUARD,
+            ProfileType.HYSTERIA2,
+            ProfileType.TUIC,
+            ProfileType.ZIVPN,
+        )) {
+            assertTrue("$type must be UDP-only", LatencyTester.isUdpOnly(type))
+        }
+        for (type in listOf(
+            ProfileType.VLESS,
+            ProfileType.VMESS,
+            ProfileType.TROJAN,
+            ProfileType.SHADOWSOCKS,
+            ProfileType.SSH,
+            ProfileType.SINGBOX_JSON,
+        )) {
+            assertFalse("$type must stay TCP-probeable", LatencyTester.isUdpOnly(type))
+        }
+    }
+
+    @Test
+    fun `testAll skips a WireGuard profile even when its port listens on TCP`() = runTest {
+        // The proof that no TCP probe is attempted for UDP-only
+        // profiles: the WireGuard profile points at a port where a
+        // TCP listener IS answering — had it been probed, it would
+        // show up with a latency. It must be absent entirely.
+        ServerSocket(0, 0, InetAddress.getByName("::1")).use { server ->
+            val profiles = listOf(
+                Profile(
+                    name = "wg", type = ProfileType.WIREGUARD,
+                    server = "::1", port = server.localPort, outboundJson = "{}",
+                ),
+                Profile(
+                    name = "vless", type = ProfileType.VLESS,
+                    server = "::1", port = server.localPort, outboundJson = "{}",
+                ),
+            )
+            val results = LatencyTester.testAll(profiles, timeoutMs = 500)
+            assertEquals(listOf("vless"), results.map { it.profile.name })
+            assertTrue(results[0].latencyMs != null)
+        }
+    }
+
+    @Test
+    fun `testAll skips every UDP-only type and keeps the rest`() = runTest {
+        val closedPort = ServerSocket(0, 0, InetAddress.getByName("::1")).use { it.localPort }
+        val profiles = listOf(
+            Profile(name = "wg", type = ProfileType.WIREGUARD, server = "::1", port = closedPort, outboundJson = "{}"),
+            Profile(name = "hy2", type = ProfileType.HYSTERIA2, server = "::1", port = closedPort, outboundJson = "{}"),
+            Profile(name = "tuic", type = ProfileType.TUIC, server = "::1", port = closedPort, outboundJson = "{}"),
+            Profile(name = "zivpn", type = ProfileType.ZIVPN, server = "::1", port = closedPort, outboundJson = "{}"),
+            Profile(name = "vless", type = ProfileType.VLESS, server = "::1", port = closedPort, outboundJson = "{}"),
+        )
+        val results = LatencyTester.testAll(profiles, timeoutMs = 500)
+        assertEquals(listOf("vless"), results.map { it.profile.name })
+        assertNull(results[0].latencyMs)
+    }
+
+    @Test
+    fun `testAll on only UDP-only profiles returns an empty list`() = runTest {
+        val profiles = listOf(
+            Profile(name = "wg", type = ProfileType.WIREGUARD, server = "203.0.113.1", port = 51820, outboundJson = "{}"),
+            Profile(name = "hy2", type = ProfileType.HYSTERIA2, server = "203.0.113.1", port = 443, outboundJson = "{}"),
+        )
+        assertTrue(LatencyTester.testAll(profiles, timeoutMs = 500).isEmpty())
     }
 }
