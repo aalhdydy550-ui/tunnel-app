@@ -39,6 +39,10 @@ object OvpnConfParser {
      * `remote`; every `remote` (including ones inside `<connection>`
      * blocks) is kept in `remotes`.
      *
+     * Note: Embedded credentials (username and password) are stored in the
+     * resulting Profile's outboundJson at the same storage level as the rest
+     * of the profile data.
+     *
      * @throws IllegalArgumentException with an Arabic message when the
      * file is rejected (empty, `dev tap`, no `remote`, unknown
      * protocol, or a reference to an external file by path).
@@ -139,6 +143,9 @@ object OvpnConfParser {
                             ) {
                                 username = next1.line
                                 password = next2.line
+                                configLines += next1.line
+                                configLines += next2.line
+                                i += 2
                             }
                         }
                         "ca", "cert", "key", "tls-auth", "tls-crypt", "tls-crypt-v2",
@@ -176,7 +183,7 @@ object OvpnConfParser {
                             val creds = entry.lines
                                 .drop(1).dropLast(1)
                                 .map { it.trim() }
-                                .filter { it.isNotEmpty() }
+                                .filter { it.isNotEmpty() && !it.startsWith("#") && !it.startsWith(";") }
                             if (creds.size == 2 && username == null) {
                                 username = creds[0]
                                 password = creds[1]
@@ -372,6 +379,12 @@ object OvpnConfParser {
 
     private sealed interface Entry {
         data class Directive(val line: String, val keyword: String, val args: List<String>) : Entry {
+            /**
+             * Check if the line is a single token that is NOT a known directive.
+             * This guard prevents a bare 'auth-user-pass' followed by real
+             * directives from accidentally swallowing those directives as
+             * credentials.
+             */
             fun isSingleNonDirectiveToken(): Boolean {
                 if (line.isBlank() || line.contains(' ') || line.contains('\t')) return false
                 if (line.startsWith("<")) return false
@@ -380,7 +393,15 @@ object OvpnConfParser {
 
             companion object {
                 fun fromLine(line: String): Directive {
-                    val parts = line.split(Regex("\\s+")).filter { it.isNotEmpty() }
+                    val parts = mutableListOf<String>()
+                    val regex = Regex("""[^\s"']+|"([^"]*)"|'([^']*)'""")
+                    val matches = regex.findAll(line)
+                    for (match in matches) {
+                        val token = match.groups[1]?.value
+                            ?: match.groups[2]?.value
+                            ?: match.value
+                        parts.add(token)
+                    }
                     return Directive(
                         line = line,
                         keyword = parts.firstOrNull().orEmpty(),
