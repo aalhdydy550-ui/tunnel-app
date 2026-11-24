@@ -1,0 +1,1 @@
+Settings stores tests.
