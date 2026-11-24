@@ -38,6 +38,13 @@ dependencies {
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
 
+    // QR import (batch 1, item #1): ZXing core 3.5.3, Apache-2.0 —
+    // pure Java, no ML Kit (model download + memory: rejected on a
+    // 2 GB phone). The decoder (QrCodeDecoder) lives in this module so
+    // it stays unit-testable on the JVM; :app declares the same
+    // artifact per the batch instruction.
+    implementation("com.google.zxing:core:3.5.3")
+
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.core)
     testImplementation(libs.kotlinx.coroutines.test)
