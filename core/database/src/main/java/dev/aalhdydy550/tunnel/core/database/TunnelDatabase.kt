@@ -13,7 +13,7 @@ import androidx.sqlite.execSQL
         ReferenceServerEntity::class,
         ReferenceNetworkEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class TunnelDatabase : RoomDatabase() {
@@ -99,6 +99,43 @@ abstract class TunnelDatabase : RoomDatabase() {
                 )
                 connection.execSQL(
                     "ALTER TABLE subscriptions ADD COLUMN isDefault INTEGER NOT NULL DEFAULT 0",
+                )
+            }
+        }
+
+        /**
+         * v4 → v5: drops the `isDefault` column from `subscriptions`
+         * (the built-in default free subscription is removed).
+         *
+         * The column is dropped by rebuilding the table — copy the
+         * surviving columns into a new table, drop the old one, rename
+         * — instead of `ALTER TABLE ... DROP COLUMN`, which needs
+         * SQLite 3.35+ and is not guaranteed on old devices. The
+         * CREATE TABLE statement must match Room's expected schema
+         * exactly (same rule as MIGRATION_2_3): column names, types,
+         * NOT NULL, autoincrement primary key.
+         */
+        val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL(
+                    "CREATE TABLE `subscriptions_new` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`url` TEXT NOT NULL, " +
+                        "`name` TEXT NOT NULL, " +
+                        "`lastFetchedAt` INTEGER NOT NULL, " +
+                        "`lastProfileCount` INTEGER NOT NULL, " +
+                        "`lastError` TEXT NOT NULL)",
+                )
+                connection.execSQL(
+                    "INSERT INTO `subscriptions_new` (" +
+                        "`id`, `url`, `name`, `lastFetchedAt`, " +
+                        "`lastProfileCount`, `lastError`) " +
+                        "SELECT `id`, `url`, `name`, `lastFetchedAt`, " +
+                        "`lastProfileCount`, `lastError` FROM `subscriptions`",
+                )
+                connection.execSQL("DROP TABLE `subscriptions`")
+                connection.execSQL(
+                    "ALTER TABLE `subscriptions_new` RENAME TO `subscriptions`",
                 )
             }
         }
