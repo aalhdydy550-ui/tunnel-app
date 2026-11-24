@@ -17,4 +17,6 @@ data class Subscription(
     val lastProfileCount: Int = 0,
     /** "" when the last fetch succeeded; the error message otherwise. */
     val lastError: String = "",
+    /** True for the built-in default free subscription. */
+    val isDefault: Boolean = false,
 )
