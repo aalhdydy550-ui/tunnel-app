@@ -207,11 +207,11 @@ object SingBoxConfigBuilder {
                         val exclude = excludePackages.filter { it.isNotBlank() }
                         if (include.isNotEmpty()) {
                             putJsonArray("include_package") {
-                                include.forEach { add(it) }
+                                include.forEach { add(JsonPrimitive(it)) }
                             }
                         } else if (exclude.isNotEmpty()) {
                             putJsonArray("exclude_package") {
-                                exclude.forEach { add(it) }
+                                exclude.forEach { add(JsonPrimitive(it)) }
                             }
                         }
                     },
