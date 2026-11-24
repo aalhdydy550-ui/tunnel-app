@@ -10,6 +10,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.aalhdydy550.tunnel.core.data.net.defaultOkHttpClient
+import dev.aalhdydy550.tunnel.core.database.HamoReferenceSeeder
 import dev.aalhdydy550.tunnel.core.database.ProfileDao
 import dev.aalhdydy550.tunnel.core.database.SubscriptionDao
 import dev.aalhdydy550.tunnel.core.database.TunnelDatabase
@@ -42,6 +43,16 @@ object DataModule {
     @Provides
     fun provideSubscriptionDao(database: TunnelDatabase): SubscriptionDao =
         database.subscriptionDao()
+
+    /**
+     * The reference-data seeder. Provided here (not via an `@Inject`
+     * constructor on the class) because `:core:database` has no Hilt
+     * dependency.
+     */
+    @Provides
+    @Singleton
+    fun provideHamoReferenceSeeder(database: TunnelDatabase): HamoReferenceSeeder =
+        HamoReferenceSeeder(database)
 
     @Provides
     @Singleton
