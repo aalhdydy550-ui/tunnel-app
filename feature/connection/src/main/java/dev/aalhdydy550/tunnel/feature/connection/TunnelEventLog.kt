@@ -27,12 +27,20 @@ object TunnelEventLog {
     private val events = ConcurrentLinkedQueue<Event>()
 
     fun log(message: String) {
-        Log.i(TAG, message)
+        // Best-effort mirror: Log.i throws on a plain JVM (unit
+        // tests run against the android.jar stub), while the ring
+        // buffer below is the source of truth and must never fail.
+        runCatching { Log.i(TAG, message) }
         events += Event(System.currentTimeMillis(), message)
         while (events.size > MAX_EVENTS) events.poll()
     }
 
     fun logDisconnect(reason: String) = log("disconnected: $reason")
+
+    /** Empties the in-memory ring (the Logcat mirror is untouched). */
+    fun clear() {
+        events.clear()
+    }
 
     fun snapshot(): List<Event> = events.toList()
 }

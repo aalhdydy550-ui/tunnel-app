@@ -24,6 +24,11 @@ import kotlinx.coroutines.launch
  * The sampler is injectable so the delta math is unit-testable without
  * Android. When [TrafficStats] reports UNSUPPORTED (-1), the speed
  * stays 0 rather than showing nonsense.
+ *
+ * [cumulative] exposes the latest raw UID counters behind the rate:
+ * the usage-statistics repository ([dev.aalhdydy550.tunnel.core.data
+ * .stats.UsageStatsRepository]) turns them into per-session totals.
+ * It costs nothing extra — the counters are already sampled here.
  */
 class SpeedMonitor(
     private val scope: CoroutineScope,
@@ -35,18 +40,28 @@ class SpeedMonitor(
     private val _speed = MutableStateFlow(Speed(0, 0))
     val speed: StateFlow<Speed> = _speed.asStateFlow()
 
+    /**
+     * Latest raw cumulative UID counters (rx, tx) from [sample].
+     * Unlike [speed] this never resets to zero while running, so a
+     * consumer can difference successive values into session totals.
+     */
+    private val _cumulative = MutableStateFlow(0L to 0L)
+    val cumulative: StateFlow<Pair<Long, Long>> = _cumulative.asStateFlow()
+
     private var job: Job? = null
 
     fun start() {
         if (job != null) return
         job = scope.launch {
             var previous = sample()
+            _cumulative.value = previous
             while (isActive) {
                 delay(intervalMs)
                 val current = sample()
                 val rx = ((current.first - previous.first).coerceAtLeast(0) * 1_000) / intervalMs
                 val tx = ((current.second - previous.second).coerceAtLeast(0) * 1_000) / intervalMs
                 _speed.value = Speed(rx, tx)
+                _cumulative.value = current
                 previous = current
             }
         }
@@ -56,6 +71,7 @@ class SpeedMonitor(
         job?.cancel()
         job = null
         _speed.value = Speed(0, 0)
+        _cumulative.value = 0L to 0L
     }
 
     companion object {

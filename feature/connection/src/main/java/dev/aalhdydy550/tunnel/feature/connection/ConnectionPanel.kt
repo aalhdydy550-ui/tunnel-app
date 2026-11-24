@@ -67,6 +67,13 @@ fun ConnectionPanel(
     onDisconnect: () -> Unit,
     onServerCardClick: () -> Unit,
     modifier: Modifier = Modifier,
+    // Post-connection check (#7): all optional, so existing callers
+    // compile unchanged and the card stays hidden until the screen
+    // wires PostConnectionCheckViewModel in (see the integration note
+    // in the delivery summary).
+    checkResult: PostConnectionChecker.Result? = null,
+    checkingPostConnection: Boolean = false,
+    onCheckPostConnection: (() -> Unit)? = null,
 ) {
     val connected = state is TunnelState.Started
     val busy = state is TunnelState.Starting || state is TunnelState.Reconnecting ||
@@ -252,6 +259,18 @@ fun ConnectionPanel(
                 text = state.message,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
+            )
+        }
+
+        // Post-connection check card (#7): shown while connected, or
+        // while a previous result exists (until disconnect clears it).
+        if (connected || checkResult != null) {
+            Spacer(modifier = Modifier.height(12.dp))
+            PostConnectionCheckCard(
+                connected = connected,
+                result = checkResult,
+                checking = checkingPostConnection,
+                onCheckNow = onCheckPostConnection,
             )
         }
     }
