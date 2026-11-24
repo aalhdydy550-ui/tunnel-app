@@ -73,6 +73,15 @@ fun validateCustomDnsHost(rawHost: String): String? {
     ) {
         return "بدون بروتوكول أو منفذ أو مسافات — مثال: 9.9.9.9"
     }
+    // A host shaped like a dotted quad (three leading numeric labels)
+    // is an IPv4 attempt: it must be a valid IPv4, never a hostname —
+    // otherwise a typo like "1.2.3.x" would pass as a hostname.
+    val labels = host.split('.')
+    if (labels.size >= 4 && labels.take(3).all { it.isNotEmpty() && it.all(Char::isDigit) }) {
+        if (!isValidIpv4(host)) {
+            return "عنوان غير صالح — أدخل IP صحيحًا أو اسم نطاق مثل dns.google"
+        }
+    }
     if (isValidIpv4(host) || isValidHostname(host)) return null
     return "عنوان غير صالح — أدخل IP صحيحًا أو اسم نطاق مثل dns.google"
 }
