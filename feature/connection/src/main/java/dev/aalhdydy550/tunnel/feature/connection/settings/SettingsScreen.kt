@@ -143,6 +143,62 @@ fun SettingsScreen(
             }
         }
 
+        // Kill switch: hold the TUN open while the tunnel is down,
+        // so no traffic leaves the device. Disabled in proxy mode —
+        // with no TUN there is nothing to hold open.
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "مفتاح القتل (Kill Switch)",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Switch(
+                        checked = state.killSwitchEnabled,
+                        enabled = state.proxyMode != ProxyMode.PROXY,
+                        onCheckedChange = {
+                            settingsViewModel.onKillSwitchChange(it)
+                        },
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "عند تفعيله لن يخرج أي ترافيك من الجهاز إطلاقًا " +
+                        "أثناء انقطاع النفق — حتى الإشعارات — إلى أن يعود " +
+                        "الاتصال أو توقفه يدويًا",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "لا ينجو من موت العملية — إن قتل النظام التطبيق " +
+                        "كله عاد الإنترنت مباشرة؛ والغطاء الأقوى يبقى " +
+                        "Always-on في النظام.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (state.proxyMode == ProxyMode.PROXY) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "لا يعمل في وضع البروكسي — بلا TUN لا يوجد " +
+                            "ما يُبقيه مفتوحًا.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "يسري على الاتصال التالي",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
         // LAN sharing.
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {

@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.aalhdydy550.tunnel.core.data.net.DEFAULT_LOCAL_PROXY_PORT
 import dev.aalhdydy550.tunnel.core.data.net.validateLocalProxyPort
 import dev.aalhdydy550.tunnel.core.data.repository.AllowInsecureStore
+import dev.aalhdydy550.tunnel.core.data.repository.KillSwitchStore
 import dev.aalhdydy550.tunnel.core.data.repository.LocalProxyStore
 import dev.aalhdydy550.tunnel.core.data.repository.ProxyMode
 import dev.aalhdydy550.tunnel.core.data.repository.ProxyModeStore
@@ -26,6 +27,8 @@ data class SettingsUiState(
     val allowInsecure: Boolean = false,
     /** Connection mode: [ProxyMode.VPN] (default) or proxy-only. */
     val proxyMode: ProxyMode = ProxyMode.VPN,
+    /** In-app kill switch: block all traffic while the tunnel is down. */
+    val killSwitchEnabled: Boolean = false,
 )
 
 /**
@@ -42,6 +45,12 @@ data class SettingsUiState(
  *   proxy-only (no VPN interface — only apps configured to use the
  *   local proxy go through the tunnel). It applies at the next
  *   connect.
+ * - The kill switch ([onKillSwitchChange]) also saves immediately
+ *   and applies at the next connect. It is OFF by default and never
+ *   works in proxy mode: with no TUN there is nothing to hold open,
+ *   so the UI disables it there. It does not survive the death of
+ *   the whole process — the stronger cover remains the system's
+ *   Always-on VPN.
  * - The stored port is adopted into the text field only when it
  *   actually changes, so toggling a switch never wipes a port the user
  *   is still typing.
@@ -51,6 +60,7 @@ class SettingsViewModel @Inject constructor(
     private val store: LocalProxyStore,
     private val allowInsecureStore: AllowInsecureStore,
     private val proxyModeStore: ProxyModeStore,
+    private val killSwitchStore: KillSwitchStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -85,6 +95,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             proxyModeStore.mode.collect { mode ->
                 _uiState.update { it.copy(proxyMode = mode, isLoading = false) }
+            }
+        }
+        viewModelScope.launch {
+            killSwitchStore.enabled.collect { enabled ->
+                _uiState.update { it.copy(killSwitchEnabled = enabled, isLoading = false) }
             }
         }
     }
@@ -139,5 +154,10 @@ class SettingsViewModel @Inject constructor(
     fun onProxyModeChange(mode: ProxyMode) {
         _uiState.update { it.copy(proxyMode = mode) }
         viewModelScope.launch { proxyModeStore.setMode(mode) }
+    }
+
+    fun onKillSwitchChange(enabled: Boolean) {
+        _uiState.update { it.copy(killSwitchEnabled = enabled) }
+        viewModelScope.launch { killSwitchStore.setEnabled(enabled) }
     }
 }
