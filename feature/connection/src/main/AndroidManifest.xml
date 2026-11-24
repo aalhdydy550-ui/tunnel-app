@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Per-app proxy screen: listing the installed apps needs full
+         package visibility on Android 11+ — without it
+         PackageManager returns only a filtered subset. This is the
+         core function of the per-app proxy (a VPN feature); the list
+         never leaves the device and no app data is collected. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
     <application>
         <!-- The VPN service: one foreground service, one TUN, one core.
              Runs in the main process (no android:process). -->
@@ -29,6 +36,22 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!-- Quick Settings tile (batch 1, item #2): one tap toggles
+             the tunnel from any screen. The user adds it from the QS
+             panel editor; the system binds it (BIND_QUICK_SETTINGS_TILE).
+             State comes from TunnelStateHolder, read-only — see
+             TunnelTileService. -->
+        <service
+            android:name=".TunnelTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>
