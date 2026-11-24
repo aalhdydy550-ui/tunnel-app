@@ -42,7 +42,11 @@ object LatencyTester {
         ProfileType.WIREGUARD,
         ProfileType.HYSTERIA2,
         ProfileType.TUIC,
-        ProfileType.ZIVPN -> true
+        ProfileType.ZIVPN,
+        // OpenVPN: the protocol differs per profile (TCP or UDP), so a
+        // TCP probe would lie about UDP servers — OpenVPN profiles are
+        // never TCP-probed (same rule as WireGuard).
+        ProfileType.OPENVPN -> true
         ProfileType.VLESS,
         ProfileType.VMESS,
         ProfileType.TROJAN,

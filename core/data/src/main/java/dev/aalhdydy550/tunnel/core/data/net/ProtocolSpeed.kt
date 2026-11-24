@@ -30,6 +30,9 @@ object ProtocolSpeed {
         ProfileType.SSH -> 7
         ProfileType.SINGBOX_JSON -> 8
         ProfileType.ZIVPN -> 9
+        // OpenVPN runs through the external app — no speed advantage
+        // is claimed for it, so it ranks last.
+        ProfileType.OPENVPN -> 10
     }
 
     /**
