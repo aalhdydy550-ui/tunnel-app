@@ -20,12 +20,15 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // Footprint: v0.1 ships arm64-v8a only (both of the user's phones
-        // are arm64). The libbox AAR contains all ABIs; Gradle keeps
-        // only arm64 in the APK. armeabi-v7a is a later decision if an
-        // older device ever needs it.
+        // ABIs: arm64-v8a + armeabi-v7a. The libbox AAR contains all
+        // ABIs (sing-box builds every Android ABI by default), and
+        // Gradle keeps only the filtered ones in the APK. armeabi-v7a
+        // is required: the user's Infinix Smart 5 (X657C) runs 32-bit
+        // Android 10 Go, so the arm64-only APK failed to install on
+        // it (INSTALL_FAILED_NO_MATCHING_ABIS, run 66).
         ndk {
             abiFilters += "arm64-v8a"
+            abiFilters += "armeabi-v7a"
         }
     }
 
