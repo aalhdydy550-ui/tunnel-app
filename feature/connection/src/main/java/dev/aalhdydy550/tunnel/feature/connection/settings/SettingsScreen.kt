@@ -77,10 +77,11 @@ fun SettingsScreen(
                     ),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                if (state.portError != null) {
+                val portError = state.portError
+                if (portError != null) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = state.portError,
+                        text = portError,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
