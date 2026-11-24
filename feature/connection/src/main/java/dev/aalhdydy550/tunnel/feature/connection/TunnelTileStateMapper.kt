@@ -27,7 +27,14 @@ object TunnelTileStateMapper {
         is TunnelState.Started -> TileUiState.CONNECTED
         is TunnelState.Starting,
         is TunnelState.Stopping,
-        is TunnelState.Reconnecting -> TileUiState.CONNECTING
+        is TunnelState.Reconnecting,
+        // Kill switch blocking: the tile stays ACTIVE and tappable
+        // (see TunnelTileService — CONNECTING is ACTIVE on purpose),
+        // so a tap stops the tunnel and restores internet. Mapping
+        // Blocked to DISCONNECTED would be a lie (the TUN is still
+        // held open), and UNAVAILABLE would swallow the tap and trap
+        // the user offline.
+        is TunnelState.Blocked -> TileUiState.CONNECTING
         is TunnelState.Stopped,
         is TunnelState.Error -> TileUiState.DISCONNECTED
     }

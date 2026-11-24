@@ -223,6 +223,10 @@ fun ConnectionPanel(
                     .border(2.dp, Color(0xFFF8CE29), CircleShape)
                     .clickable {
                         when {
+                            // Kill switch blocking: never ignored. Blocked
+                            // is NOT `busy` — the button must always stop
+                            // the tunnel here and restore internet.
+                            state is TunnelState.Blocked -> onDisconnect()
                             connected -> onDisconnect()
                             busy -> Unit // ignore taps while busy
                             else -> onConnect()
@@ -251,6 +255,15 @@ fun ConnectionPanel(
             Text(
                 text = "السبب: ${state.lastReason}",
                 style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        if (state is TunnelState.Blocked) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "لا يوجد إنترنت عمدًا — مفتاح القتل مفعّل. اضغط «إيقاف» لاستعادة الإنترنت.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                textAlign = TextAlign.Center,
             )
         }
         if (state is TunnelState.Error) {
@@ -322,6 +335,7 @@ private fun statusText(state: TunnelState): String = when (state) {
     is TunnelState.Stopping -> "جارٍ قطع الاتصال…"
     is TunnelState.Reconnecting ->
         "جارٍ إعادة الاتصال… (المحاولة ${state.attempt})"
+    is TunnelState.Blocked -> "محظور — مفتاح القتل"
     is TunnelState.Error -> "تعذّر الاتصال"
 }
 
@@ -333,6 +347,7 @@ private fun buttonLabel(state: TunnelState, selectingFastest: Boolean): String {
     is TunnelState.Started -> "متصل"
     is TunnelState.Stopping -> "جارٍ قطع الاتصال…"
     is TunnelState.Reconnecting -> "إعادة اتصال…"
+    is TunnelState.Blocked -> "إيقاف"
     is TunnelState.Error -> "أعد المحاولة"
     }
 }
@@ -341,6 +356,7 @@ private fun buttonLabel(state: TunnelState, selectingFastest: Boolean): String {
 private fun statusColor(state: TunnelState): Color = when (state) {
     is TunnelState.Started -> Color(0xFF009966)
     is TunnelState.Error -> MaterialTheme.colorScheme.error
+    is TunnelState.Blocked -> MaterialTheme.colorScheme.error
     TunnelState.Stopped -> MaterialTheme.colorScheme.error
     else -> Color(0xFF8A6D00)
 }

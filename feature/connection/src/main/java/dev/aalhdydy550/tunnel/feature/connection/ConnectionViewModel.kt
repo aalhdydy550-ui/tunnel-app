@@ -13,6 +13,7 @@ import dev.aalhdydy550.tunnel.core.data.net.DnsSelector
 import dev.aalhdydy550.tunnel.core.data.net.EndpointProbe
 import dev.aalhdydy550.tunnel.core.data.repository.AllowInsecureStore
 import dev.aalhdydy550.tunnel.core.data.repository.DnsPreferenceStore
+import dev.aalhdydy550.tunnel.core.data.repository.KillSwitchStore
 import dev.aalhdydy550.tunnel.core.data.repository.LocalProxyStore
 import dev.aalhdydy550.tunnel.core.data.repository.PerAppProxyStore
 import dev.aalhdydy550.tunnel.core.data.repository.ProfileRepository
@@ -85,6 +86,7 @@ class ConnectionViewModel @Inject constructor(
     private val localProxyStore: LocalProxyStore,
     private val allowInsecureStore: AllowInsecureStore,
     private val proxyModeStore: ProxyModeStore,
+    private val killSwitchStore: KillSwitchStore,
     private val openVpnLauncher: OpenVpnLauncher,
 ) : ViewModel() {
 
@@ -350,6 +352,13 @@ class ConnectionViewModel @Inject constructor(
             context,
             ProxyOnlyService.stopIntent(context),
         )
+        // Kill switch: read once at connect time and hand the value
+        // to the service with the start intent. Only this VPN route
+        // calls startServiceFor — the PROXY route starts
+        // ProxyOnlyService (no TUN to hold) and the OPENVPN route
+        // hands the tunnel to the external app, so the kill switch
+        // never applies to either of them.
+        val killSwitchEnabled = killSwitchStore.enabled.first()
         ContextCompat.startForegroundService(
             context,
             TunnelVpnService.startIntent(
@@ -358,6 +367,7 @@ class ConnectionViewModel @Inject constructor(
                 profileName = profile.name,
                 profileType = profile.type.name,
                 configJson = config,
+                killSwitchEnabled = killSwitchEnabled,
             ),
         )
     }

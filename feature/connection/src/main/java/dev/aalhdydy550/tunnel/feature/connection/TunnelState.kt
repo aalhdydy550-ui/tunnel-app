@@ -23,6 +23,16 @@ sealed interface TunnelState {
         val lastReason: String,
     ) : TunnelState
 
+    /**
+     * Kill switch is holding the TUN open with no engine — the
+     * device has no internet on purpose. The engine dropped while
+     * the kill switch was enabled, and the service keeps retrying
+     * in the background; the user can always stop from here (or
+     * from the notification / the Quick Settings tile) to restore
+     * internet immediately.
+     */
+    data class Blocked(val profileName: String) : TunnelState
+
     data class Error(val message: String) : TunnelState
 }
 

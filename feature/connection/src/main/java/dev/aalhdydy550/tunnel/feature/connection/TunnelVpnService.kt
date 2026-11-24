@@ -18,11 +18,14 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.Process
+import android.system.Os
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import dev.aalhdydy550.tunnel.core.data.model.Profile
 import dev.aalhdydy550.tunnel.core.data.model.ProfileType
 import dev.aalhdydy550.tunnel.core.data.net.ReconnectPolicy
+import dev.aalhdydy550.tunnel.core.data.repository.KillSwitchStore
+import dev.aalhdydy550.tunnel.core.data.repository.createKillSwitchStore
 import dev.aalhdydy550.tunnel.feature.connection.injector.InjectorSessionManager
 import dev.aalhdydy550.tunnel.feature.connection.injector.payload.InjectorMode
 import io.nekohasekai.libbox.BridgeOptions
@@ -46,6 +49,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -102,6 +106,13 @@ class TunnelVpnService : VpnService() {
         const val EXTRA_PROFILE_TYPE = "profile_type"
         const val EXTRA_CONFIG_JSON = "config_json"
 
+        // Kill switch: true when the user enabled it (read once at
+        // connect time by the ViewModel). Callers that revive the
+        // last session (BootReceiver, the Quick Settings tile) do NOT
+        // put this extra — the service then reads the stored setting
+        // itself; see the ACTION_START branch.
+        const val EXTRA_KILL_SWITCH = "kill_switch"
+
         // Injector («نت مجاني») extras. Present only when
         // EXTRA_INJECTOR is true; the SSH password travels in the
         // Intent (memory only) and is never written to disk.
@@ -133,12 +144,14 @@ class TunnelVpnService : VpnService() {
             profileName: String,
             profileType: String,
             configJson: String,
+            killSwitchEnabled: Boolean = false,
         ): Intent = Intent(context, TunnelVpnService::class.java).apply {
             action = ACTION_START
             putExtra(EXTRA_PROFILE_ID, profileId)
             putExtra(EXTRA_PROFILE_NAME, profileName)
             putExtra(EXTRA_PROFILE_TYPE, profileType)
             putExtra(EXTRA_CONFIG_JSON, configJson)
+            putExtra(EXTRA_KILL_SWITCH, killSwitchEnabled)
         }
 
         fun stopIntent(context: Context): Intent =
@@ -196,6 +209,13 @@ class TunnelVpnService : VpnService() {
     private lateinit var heartbeat: HeartbeatMonitor
     private lateinit var speedMonitor: SpeedMonitor
     private lateinit var lastSessionStore: LastSessionStore
+    // Kill switch state machine (pure Kotlin — see KillSwitchManager):
+    // OFF when disabled or stopped, ARMED while the tunnel runs with
+    // the switch on, BLOCKING while the engine is down and the TUN
+    // is being held open. The stored on/off setting lives in
+    // [killSwitchStore]; the manager only tracks the live state.
+    private val killSwitchManager = KillSwitchManager()
+    private lateinit var killSwitchStore: KillSwitchStore
 
     private var tunFd: ParcelFileDescriptor? = null
     private var currentProfileId: Long = -1L
@@ -219,6 +239,7 @@ class TunnelVpnService : VpnService() {
     override fun onCreate() {
         super.onCreate()
         lastSessionStore = LastSessionStore(this)
+        killSwitchStore = createKillSwitchStore(this)
         platformInterface = TunnelPlatformInterface()
         engine = TunnelEngine(
             context = this,
@@ -291,7 +312,26 @@ class TunnelVpnService : VpnService() {
                         null
                     }
                 scope.launch {
-                    startTunnel(profileId, profileName, profileType, configJson, injectorParams)
+                    // The kill-switch extra is present only when the
+                    // caller passed it (the ViewModel at connect
+                    // time). BootReceiver and the Quick Settings tile
+                    // revive the last session without it — then the
+                    // stored setting decides, read here inside the
+                    // coroutine. Absent extra must NOT mean "off":
+                    // it means "ask the setting".
+                    val ksEnabled = if (intent.hasExtra(EXTRA_KILL_SWITCH)) {
+                        intent.getBooleanExtra(EXTRA_KILL_SWITCH, false)
+                    } else {
+                        killSwitchStore.enabled.first()
+                    }
+                    startTunnel(
+                        profileId,
+                        profileName,
+                        profileType,
+                        configJson,
+                        injectorParams,
+                        killSwitchEnabled = ksEnabled,
+                    )
                 }
             }
             null -> {
@@ -323,11 +363,15 @@ class TunnelVpnService : VpnService() {
                     }
                     TunnelEventLog.log("reviving last session after system kill")
                     scope.launch {
+                        // No intent here, so no kill-switch extra:
+                        // revive with the stored setting.
+                        val ksEnabled = killSwitchStore.enabled.first()
                         startTunnel(
                             session.profileId,
                             session.profileName,
                             session.profileType,
                             session.configJson,
+                            killSwitchEnabled = ksEnabled,
                         )
                     }
                 } else {
@@ -367,8 +411,16 @@ class TunnelVpnService : VpnService() {
         profileType: String,
         configJson: String,
         injectorParams: InjectorSessionManager.Params? = null,
+        killSwitchEnabled: Boolean = false,
     ) {
         startMutex.withLock {
+            // Kill switch on/off for this run, decided before the
+            // engine starts: ARMED when enabled (the engine is about
+            // to run), OFF when disabled. A connect that fails before
+            // the first TUN exists has no TUN to hold — that failure
+            // path is unchanged and stays a plain Error (known gap,
+            // documented in the item-2 report).
+            killSwitchManager.setEnabled(killSwitchEnabled)
             reconnectJob?.cancel()
             reconnectJob = null
             reconnectAttempt = 0
@@ -414,6 +466,9 @@ class TunnelVpnService : VpnService() {
                     outboundJson = "",
                 )
                 engine.start(profile, configJson)
+                // Engine up with the switch on: ARMED (was set above,
+                // confirmed here now that the tunnel really runs).
+                killSwitchManager.onEngineStarted()
             } catch (e: Exception) {
                 // The engine failed after the injector session came
                 // up: do not leave a live SSH session (and its SOCKS
@@ -451,6 +506,12 @@ class TunnelVpnService : VpnService() {
      */
     private suspend fun stopTunnel(reason: String, userInitiated: Boolean) {
         startMutex.withLock {
+            // The engine is dead from here on and the TUN is closed
+            // below (keepTun is never true here) — so the kill switch
+            // goes OFF on EVERY stop path: user stop, destroy, revoke,
+            // core request. A user stop must always restore internet;
+            // never trap the user offline.
+            killSwitchManager.onStopped()
             reconnectJob?.cancel()
             reconnectJob = null
             reconnectAttempt = 0
@@ -471,10 +532,17 @@ class TunnelVpnService : VpnService() {
         }
     }
 
-    /** Stops the engine + closes the TUN fd. Never throws. */
-    private fun stopEngineSilently() {
+    /**
+     * Stops the engine + closes the TUN fd — unless [keepTun] holds
+     * it open for the kill switch. With the switch enabled and the
+     * engine down, the TUN stays open with no reader: traffic routed
+     * to it goes nowhere, so nothing leaks outside the tunnel while
+     * the service retries. Never throws. Only the reconnect loop
+     * passes `keepTun = true`; every stop path closes the TUN.
+     */
+    private fun stopEngineSilently(keepTun: Boolean = false) {
         runCatching { engine.stop() }
-        closeTunFd()
+        if (!keepTun) closeTunFd()
     }
 
     private fun closeTunFd() {
@@ -500,21 +568,43 @@ class TunnelVpnService : VpnService() {
             return
         }
         if (reconnectJob?.isActive == true) return
+        // The engine is down and the service is about to retry: with
+        // the kill switch enabled this is the single transition into
+        // BLOCKING (once per reconnect loop, not once per attempt —
+        // the loop below re-checks isBlocking on every attempt).
+        killSwitchManager.onEngineFailed()
         reconnectJob = scope.launch {
             var attempt = reconnectAttempt + 1
             while (true) {
                 reconnectAttempt = attempt
                 val delayMs = ReconnectPolicy.delayForAttempt(attempt)
-                TunnelStateHolder.update(
-                    TunnelState.Reconnecting(currentProfileName, attempt, reason),
-                )
-                updateNotification("جارٍ إعادة الاتصال… (المحاولة $attempt)")
+                if (killSwitchManager.isBlocking) {
+                    // Kill switch holding the TUN: no internet on
+                    // purpose while the retries run. The Blocked
+                    // notification reuses buildNotification, which
+                    // already carries the "قطع الاتصال" stop action
+                    // — the user can always stop from it.
+                    TunnelStateHolder.update(
+                        TunnelState.Blocked(currentProfileName),
+                    )
+                    updateNotification(
+                        "محظور — مفتاح القتل: لا إنترنت عمدًا (المحاولة $attempt)",
+                    )
+                } else {
+                    TunnelStateHolder.update(
+                        TunnelState.Reconnecting(currentProfileName, attempt, reason),
+                    )
+                    updateNotification("جارٍ إعادة الاتصال… (المحاولة $attempt)")
+                }
                 TunnelEventLog.log(
                     "reconnect attempt $attempt in ${delayMs}ms (reason: $reason)",
                 )
                 delay(delayMs)
                 val ok = try {
-                    stopEngineSilently()
+                    // Kill switch: keep the TUN open while the engine
+                    // is down (shouldKeepTun is true only in
+                    // BLOCKING); otherwise close it as before.
+                    stopEngineSilently(keepTun = killSwitchManager.shouldKeepTun)
                     val profile = Profile(
                         id = currentProfileId,
                         name = currentProfileName,
@@ -534,6 +624,9 @@ class TunnelVpnService : VpnService() {
                 if (ok) {
                     reconnectAttempt = 0
                     reconnectJob = null
+                    // Engine back up: BLOCKING → ARMED before the
+                    // Started state is shown.
+                    killSwitchManager.onEngineStarted()
                     TunnelStateHolder.update(TunnelState.Started(currentProfileName))
                     updateNotification("متصل — $currentProfileName")
                     heartbeat.start()
@@ -765,8 +858,21 @@ class TunnelVpnService : VpnService() {
             }
             val fd = builder.establish()
                 ?: error("android: failed to establish VPN interface")
-            tunFd = fd
-            return fd.detachFd()
+            // Hold-open duplicate for the kill switch: openTun must
+            // return the raw fd to libbox (detachFd), and libbox's
+            // engine.stop() closes its copy and destroys the
+            // interface — so a detached fd alone cannot keep the TUN
+            // alive. We therefore keep our own duplicate
+            // (Os.dup, API 21+, minSdk is 24) as the hold-open
+            // handle and return the original raw fd to libbox.
+            // closeTunFd() closes the duplicate, which destroys the
+            // interface — so every stop still tears the TUN down.
+            // Duplicating is safe even if libbox never closes its
+            // copy: the extra handle is closed by closeTunFd() on
+            // every stop, exactly like the original fd was.
+            val rawFd = fd.detachFd()
+            tunFd = ParcelFileDescriptor.adoptFd(Os.dup(rawFd))
+            return rawFd
         }
 
         override fun findConnectionOwner(
