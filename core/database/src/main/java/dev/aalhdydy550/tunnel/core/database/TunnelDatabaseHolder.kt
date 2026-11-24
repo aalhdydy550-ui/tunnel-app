@@ -34,6 +34,7 @@ object TunnelDatabaseHolder {
             .addMigrations(
                 TunnelDatabase.MIGRATION_1_2,
                 TunnelDatabase.MIGRATION_2_3,
+                TunnelDatabase.MIGRATION_3_4,
             )
             .build()
             .also { instance = it }

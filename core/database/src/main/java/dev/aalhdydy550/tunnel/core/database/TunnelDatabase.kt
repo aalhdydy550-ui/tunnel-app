@@ -7,13 +7,20 @@ import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.execSQL
 
 @Database(
-    entities = [ProfileEntity::class, SubscriptionEntity::class],
-    version = 3,
+    entities = [
+        ProfileEntity::class,
+        SubscriptionEntity::class,
+        ReferenceServerEntity::class,
+        ReferenceNetworkEntity::class,
+    ],
+    version = 4,
     exportSchema = false,
 )
 abstract class TunnelDatabase : RoomDatabase() {
     abstract fun profileDao(): ProfileDao
     abstract fun subscriptionDao(): SubscriptionDao
+    abstract fun referenceServerDao(): ReferenceServerDao
+    abstract fun referenceNetworkDao(): ReferenceNetworkDao
 
     companion object {
         /**
@@ -52,6 +59,46 @@ abstract class TunnelDatabase : RoomDatabase() {
                 )
                 connection.execSQL(
                     "ALTER TABLE profiles ADD COLUMN subscriptionId INTEGER",
+                )
+            }
+        }
+
+        /**
+         * v3 → v4: adds the two reference-only tables (`referenceServers`,
+         * `referenceNetworks` — Hamo reference data, never profiles) and
+         * the `isDefault` column on `subscriptions` (1 = the built-in
+         * default free subscription, 0 = a subscription the user added).
+         *
+         * The CREATE TABLE statements must match Room's expected schema
+         * exactly (same rule as MIGRATION_2_3): column names, types,
+         * NOT NULL, autoincrement primary key. The new tables start
+         * empty on upgrade; [HamoReferenceSeeder] fills them on the
+         * next app start (fresh installs get the same fill). The
+         * `isDefault` column defaults to 0, so every subscription a
+         * user added before this version stays a normal subscription.
+         */
+        val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `referenceServers` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`name` TEXT NOT NULL, " +
+                        "`host` TEXT NOT NULL, " +
+                        "`tcpPort` TEXT NOT NULL, " +
+                        "`sslPort` TEXT NOT NULL, " +
+                        "`protocol` INTEGER NOT NULL, " +
+                        "`flag` TEXT NOT NULL)",
+                )
+                connection.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `referenceNetworks` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`name` TEXT NOT NULL, " +
+                        "`sniHost` TEXT NOT NULL, " +
+                        "`tunnelType` INTEGER NOT NULL, " +
+                        "`carrierInfo` TEXT NOT NULL)",
+                )
+                connection.execSQL(
+                    "ALTER TABLE subscriptions ADD COLUMN isDefault INTEGER NOT NULL DEFAULT 0",
                 )
             }
         }
