@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.IBinder
 import android.os.Process
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -153,6 +154,11 @@ class ProxyOnlyService : Service() {
         )
         createNotificationChannel()
     }
+
+    // No binding: this is a started-only foreground service. The
+    // abstract Service.onBind must still be implemented, or the
+    // class does not compile (CI caught this on f0b1dcc).
+    override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
