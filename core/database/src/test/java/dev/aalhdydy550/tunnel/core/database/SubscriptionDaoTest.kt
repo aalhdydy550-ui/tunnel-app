@@ -98,4 +98,12 @@ class SubscriptionDaoTest {
         val id = profileDao.insert(profile("Sub server", subId))
         assertEquals(subId, profileDao.getById(id)?.subscriptionId)
     }
+
+    @Test
+    fun `isDefault defaults to false and round-trips`() = runTest {
+        val id = dao.insert(subscription("https://example.com/sub"))
+        assertEquals(false, dao.getById(id)!!.isDefault)
+        dao.update(dao.getById(id)!!.copy(isDefault = true))
+        assertEquals(true, dao.getById(id)!!.isDefault)
+    }
 }
