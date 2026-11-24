@@ -90,3 +90,14 @@ light footprint is a priority, not cosmetics.
 فعليًا عندما يبنيه GitHub Actions، بأداة القياس
 `scripts/measure-footprint.sh` — وتُسجَّل هنا حينها. لا يُدَّعى أي
 رقم لم يُقَس.
+
+## 8. وضع «نت مجاني» (SNI + نفق SSH)
+
+| الموضوع | التفصيل |
+|---|---|
+| الطريقة | الحقن عبر SNI: اتصال TLS باسم مضيف مجاني (zero-rated) في الـSNI ← SSH داخل الـTLS ← تحويل SOCKS محلي (`127.0.0.1:10810`) ← sing-box ← النفق. المسار العادي للبروفايلات لم يُمس إطلاقًا |
+| الملفات | 11 ملفًا جديدًا في `feature/connection/.../injector/` (عميل SSH خفيف JSch ‏2.28.6 + مصنع مقابس TLS بالـSNI + مستودع المرشحين + الفحص والتوثيق) + تعديلات `TunnelVpnService.kt` و`LastSessionStore.kt` و`MainActivity.kt`؛ وزر الدخول في شاشة الخوادم (`ServersScreen.kt`: معامل `onOpenFreeInternet`) |
+| البيانات | 127 شبكة مرشحة من الجدول المرجعي `referenceNetworks` (tunnelType == 3 + SNI غير فارغ) — تُعرض كمرشحات للتجربة فقط، ولا تُوسم أي شبكة بأنها «شغالة» قبل نجاح فعلي على شريحة المستخدم دون خصم من الباقة |
+| السيرفر | يحتاج سيرفر SSH خاصًا بالمستخدم — الدليل الكامل في `docs/INJECTOR-VPS-SETUP-AR.md` (stunnel على Oracle VPS: قبول 443 ← تحويل إلى 127.0.0.1:22)؛ والمنفذ في بروفايل SSH يجب أن يكون 443 لا 22 |
+| الدخول | من الدرج («نت مجاني») + زر في شاشة الخوادم؛ وبروفايل SSH يُضاف من شاشة الاستيراد بصيغة `ssh://user:password@host:443` |
+| التوثيق | مخزن التوثيق SharedPreferences (ملف `free_internet_verified`) — لا جداول Room جديدة، فلا تغيير في مخطط قاعدة البيانات |
