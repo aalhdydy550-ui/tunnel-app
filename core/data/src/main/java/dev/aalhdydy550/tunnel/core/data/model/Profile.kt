@@ -7,6 +7,8 @@ package dev.aalhdydy550.tunnel.core.data.model
  * object). For [ProfileType.SINGBOX_JSON] it holds a complete sing-box
  * configuration document instead, stored as-is. For [ProfileType.ZIVPN] it
  * holds the ZIVPN `client.json` document (Phase 2 — see `docs/PHASE2.md`).
+ * For [ProfileType.OPENVPN] it holds a JSON document with a `config` field
+ * carrying the normalised `.ovpn` text (see `OvpnConfParser`).
  *
  * This model is pure Kotlin (no Android dependency) so the parsers and the
  * config builder can be unit-tested on the JVM.
@@ -32,6 +34,15 @@ enum class ProfileType {
      * exposing a local SOCKS5; see [Backend.EXTERNAL_PROCESS].
      */
     ZIVPN,
+    /**
+     * OpenVPN profile (`.ovpn` file): connected through the separate
+     * **OpenVPN for Android** app via its Remote API — see
+     * `feature:connection`'s `OpenVpnLauncher`. No sing-box outbound
+     * is ever built for it, and [Profile.backend] stays
+     * [Backend.SING_BOX] (the `else` branch) because the tunnel is
+     * not served by an external process of ours.
+     */
+    OPENVPN,
 }
 
 /**
