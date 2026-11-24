@@ -33,7 +33,7 @@ class SubscriptionFetcherTest {
 
     private fun serverWith(body: String, code: Int = 200): FakeHttpServer {
         val server = FakeHttpServer()
-        server.route("/", code, body)
+        server.route("/sub", code, body)
         server.start()
         return server
     }
