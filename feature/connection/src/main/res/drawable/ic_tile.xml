@@ -1,0 +1,12 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <!-- Quick Settings tile icon: simple white glyph, same tunnel
+         arch as the notification icon (ic_notification.xml). -->
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M12,2C7,2 3,6 3,11v11h3v-11c0,-3.3 2.7,-6 6,-6s6,2.7 6,6v11h3V11C21,6 17,2 12,2zM10.5,13h3l1.5,9h-6z" />
+</vector>
