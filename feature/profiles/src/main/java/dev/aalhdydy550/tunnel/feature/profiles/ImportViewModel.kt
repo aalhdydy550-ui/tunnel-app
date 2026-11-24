@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.aalhdydy550.tunnel.core.data.backup.LockedExport
 import dev.aalhdydy550.tunnel.core.data.model.Subscription
 import dev.aalhdydy550.tunnel.core.data.profile.ProfileLinkParser
 import dev.aalhdydy550.tunnel.core.data.repository.ProfileRepository
@@ -45,6 +46,20 @@ class ImportViewModel @Inject constructor(
     private val _importing = MutableStateFlow(false)
     val importing: StateFlow<Boolean> = _importing.asStateFlow()
 
+    /**
+     * A locked export (`aytun://v1.…`) waiting for its password:
+     * the text is held here (never sent to [ProfileRepository]
+     * without a password) until [importLockedText] unlocks it.
+     * Cleared on a successful unlock; kept on failure so the user
+     * can retry with another password.
+     */
+    private val _pendingLockedText = MutableStateFlow<String?>(null)
+    val pendingLockedText: StateFlow<String?> = _pendingLockedText.asStateFlow()
+
+    fun clearPendingLockedText() {
+        _pendingLockedText.value = null
+    }
+
     /** Saved subscriptions (URL, name, last fetch). */
     val subscriptions: StateFlow<List<Subscription>> =
         subscriptionRepository.subscriptions.stateIn(
@@ -55,10 +70,39 @@ class ImportViewModel @Inject constructor(
 
     fun importText(text: String, countryCode: String) {
         if (_importing.value) return
+        if (LockedExport.isLockedText(text.trim())) {
+            _pendingLockedText.value = text.trim()
+            _outcome.value = ImportOutcome(
+                0,
+                listOf("هذا تصدير مقفول — أدخل كلمة السر لفتحه"),
+            )
+            return
+        }
         viewModelScope.launch {
             _importing.value = true
             val result = profileRepository.importFromText(text)
             store(result, countryCode)
+            _importing.value = false
+        }
+    }
+
+    /**
+     * Unlocks a pending locked export with [password] (the password
+     * itself is a plain [String] here like any password field; it is
+     * converted to a `CharArray` and wiped inside
+     * [LockedExport.unlock]). On success the pending text is cleared;
+     * on failure it is kept so the user can retry with another
+     * password.
+     */
+    fun importLockedText(text: String, password: String, countryCode: String) {
+        if (_importing.value) return
+        viewModelScope.launch {
+            _importing.value = true
+            val result = profileRepository.importFromText(text, "", password)
+            store(result, countryCode)
+            if (result.profiles.isNotEmpty()) {
+                _pendingLockedText.value = null
+            }
             _importing.value = false
         }
     }
@@ -78,6 +122,12 @@ class ImportViewModel @Inject constructor(
                 _outcome.value = ImportOutcome(
                     0,
                     listOf("تعذّرت قراءة الملف"),
+                )
+            } else if (LockedExport.isLockedText(text.trim())) {
+                _pendingLockedText.value = text.trim()
+                _outcome.value = ImportOutcome(
+                    0,
+                    listOf("هذا تصدير مقفول — أدخل كلمة السر لفتحه"),
                 )
             } else {
                 val result = profileRepository.importFromText(text, uri.lastPathSegment ?: "")

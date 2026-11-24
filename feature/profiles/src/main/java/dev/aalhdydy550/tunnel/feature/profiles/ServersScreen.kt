@@ -44,6 +44,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import dev.aalhdydy550.tunnel.core.data.net.LatencyTester
 import dev.aalhdydy550.tunnel.core.data.routing.RoutingDataState
 import dev.aalhdydy550.tunnel.core.ui.R as CoreUiR
@@ -124,6 +125,23 @@ fun ServersScreen(
         runCatching {
             context.contentResolver.openOutputStream(uri)?.use {
                 it.write(json.toByteArray(Charsets.UTF_8))
+            }
+        }
+    }
+
+    // Locked export (.aytun): same SAF pattern, octet-stream.
+    val lockedExportViewModel: LockedExportViewModel = hiltViewModel()
+    var showLockedExport by remember { mutableStateOf(false) }
+    var pendingLockedExport by remember { mutableStateOf<String?>(null) }
+    val lockedExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream"),
+    ) { uri: Uri? ->
+        val locked = pendingLockedExport ?: return@rememberLauncherForActivityResult
+        pendingLockedExport = null
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.openOutputStream(uri)?.use {
+                it.write(locked.toByteArray(Charsets.UTF_8))
             }
         }
     }
@@ -291,9 +309,32 @@ fun ServersScreen(
                         exportLauncher.launch("ayman-tunnel-backup-$stamp.json")
                     }
                 },
+                onExportLocked = { showLockedExport = true },
             )
         }
         item { Spacer(modifier = Modifier.height(16.dp)) }
+    }
+
+    if (showLockedExport) {
+        LockedExportDialog(
+            viewModel = lockedExportViewModel,
+            onDismiss = { showLockedExport = false },
+            onSaveLocked = { text ->
+                pendingLockedExport = text
+                val stamp = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                    .format(Date())
+                lockedExportLauncher.launch("ayman-tunnel-locked-$stamp.aytun")
+            },
+            onShareLocked = { text ->
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, text)
+                }
+                context.startActivity(
+                    Intent.createChooser(intent, "مشاركة التصدير المقفول"),
+                )
+            },
+        )
     }
 }
 
@@ -311,6 +352,7 @@ private fun SettingsSection(
     showRoutingNotice: Boolean,
     onRetryRoutingDownload: () -> Unit,
     onExportBackup: () -> Unit,
+    onExportLocked: () -> Unit,
 ) {
     val context = LocalContext.current
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -421,6 +463,11 @@ private fun SettingsSection(
             onClick = onExportBackup,
             modifier = Modifier.fillMaxWidth(),
         ) { Text("تصدير نسخة احتياطية (JSON)") }
+
+        OutlinedButton(
+            onClick = onExportLocked,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("تصدير مشفّر (.aytun)") }
 
         // About: the name, inside the app, as the user asked.
         // Community links point to OUR repo only — never to v2rayNG's

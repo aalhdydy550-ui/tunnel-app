@@ -22,13 +22,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import dev.aalhdydy550.tunnel.core.data.backup.LockedExport
+import dev.aalhdydy550.tunnel.core.data.profile.SubscriptionFetcher
 
 /**
  * Import screen: paste links (one per line), paste from the clipboard,
  * or pick a file (link list, WireGuard `.conf`, sing-box JSON, or a
- * JSON backup from this app). Subscriptions — user-provided URLs that
- * serve a link list — are added below and refresh daily.
+ * JSON backup from this app). A locked export (`.aytun` file,
+ * `aytun://v1` text, or QR) is unlocked with its password in the
+ * "locked import" card below the file picker. Subscriptions —
+ * user-provided URLs that serve a link list — are added below and
+ * refresh daily.
  *
  * Supported links: vless / vmess / trojan / ss / hysteria2 / tuic /
  * ssh. ZIVPN links are recognized and rejected with a Phase 2 note.
@@ -41,9 +47,11 @@ fun ImportScreen(
     var text by remember { mutableStateOf("") }
     var countryCode by remember { mutableStateOf("") }
     var subscriptionUrl by remember { mutableStateOf("") }
+    var lockedPassword by remember { mutableStateOf("") }
     val outcome by viewModel.outcome.collectAsState()
     val importing by viewModel.importing.collectAsState()
     val subscriptions by viewModel.subscriptions.collectAsState()
+    val pendingLockedText by viewModel.pendingLockedText.collectAsState()
 
     val filePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent(),
@@ -95,6 +103,70 @@ fun ImportScreen(
             onClick = { filePicker.launch("*/*") },
             modifier = Modifier.fillMaxWidth(),
         ) { Text("اختيار ملف (روابط / WireGuard .conf / JSON)") }
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = "استيراد مقفول",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    text = "ملف .aytun أو نص aytun://v1 — أدخل كلمة السر " +
+                        "التي قُفل بها التصدير. الصق النص في الحقل " +
+                        "الرئيسي بالأعلى أو اختر ملفًا أو امسح رمز QR " +
+                        "أدناه، ثم أدخل كلمة السر هنا.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = lockedPassword,
+                    onValueChange = { lockedPassword = it },
+                    label = { Text("كلمة سر التصدير المقفول") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                )
+                Button(
+                    onClick = {
+                        val locked = pendingLockedText ?: text.trim()
+                        viewModel.importLockedText(
+                            locked,
+                            lockedPassword,
+                            countryCode,
+                        )
+                        lockedPassword = ""
+                    },
+                    enabled = (pendingLockedText != null ||
+                        text.trim().startsWith("aytun://")) &&
+                        lockedPassword.isNotEmpty() && !importing,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("فتح الاستيراد") }
+                if (pendingLockedText != null) {
+                    Text(
+                        text = "يوجد تصدير مقفول بانتظار كلمة السر — " +
+                            "أدخلها ثم اضغط «فتح الاستيراد».",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                QrImportSection(
+                    onQrText = { qrText ->
+                        val trimmed = qrText.trim()
+                        when {
+                            LockedExport.isLockedText(trimmed) ->
+                                viewModel.importText(trimmed, "")
+
+                            SubscriptionFetcher.isAllowedSubscriptionUrl(trimmed) ->
+                                viewModel.importSubscription(trimmed)
+
+                            else -> viewModel.importText(trimmed, countryCode)
+                        }
+                    },
+                )
+            }
+        }
         Text(
             text = "الاشتراكات",
             style = MaterialTheme.typography.titleMedium,
@@ -194,7 +266,8 @@ fun ImportScreen(
         }
         Text(
             text = "المدعوم: vless، vmess، trojan، shadowsocks، hysteria2، " +
-                "tuic، ssh، وملف WireGuard .conf، ورابط اشتراك. روابط " +
+                "tuic، ssh، وملف WireGuard .conf، ورابط اشتراك، " +
+                "والاستيراد المقفول .aytun (نص aytun://v1 أو ملف أو QR). روابط " +
                 "ZIVPN ستأتي في المرحلة 2. مفاتيح SSH الخاصة تُستورد عبر " +
                 "ملف JSON لـsing-box وليس عبر رابط.",
             style = MaterialTheme.typography.bodySmall,

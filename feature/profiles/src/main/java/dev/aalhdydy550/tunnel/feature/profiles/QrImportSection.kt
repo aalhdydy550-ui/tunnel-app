@@ -18,6 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import dev.aalhdydy550.tunnel.core.data.backup.LockedExport
 import dev.aalhdydy550.tunnel.core.data.profile.QrCodeDecoder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -66,8 +67,8 @@ fun QrImportSection(
             text.isNullOrBlank() -> {
                 status = "لم يُعثر على رمز QR في الصورة — قرّب الرمز واملأ به الإطار"
             }
-            !QrCodeDecoder.isImportableQrText(text) -> {
-                status = "رمز QR لا يحمل رابط خادم أو اشتراك صالح"
+            !LockedExport.isLockedText(text) && !QrCodeDecoder.isImportableQrText(text) -> {
+                status = "رمز QR لا يحمل رابط خادم أو اشتراك أو تصديرًا مقفولًا صالحًا"
             }
             else -> {
                 status = null
