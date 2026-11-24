@@ -3,6 +3,7 @@ package dev.aalhdydy550.tunnel.feature.connection.injector
 import com.jcraft.jsch.ChannelDirectTCPIP
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
+import com.jcraft.jsch.SocketFactory
 import java.io.InputStream
 import java.io.OutputStream
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +50,13 @@ class InjectorSshClient {
      * forward. Returns `Result.failure` (never throws) on any bad
      * input, TLS failure, authentication failure or forward failure —
      * the caller (the service) must not start the engine in that case.
+     *
+     * [socketFactory] overrides the transport: null (the default)
+     * keeps the SNI path ([TlsSniSocketFactory]); an HTTP-inject
+     * factory ([dev.aalhdydy550.tunnel.feature.connection.injector.payload.HttpInjectSocketFactory])
+     * performs the CONNECT handshake to the carrier proxy instead.
+     * The SNI host is still validated either way — it is the
+     * zero-rated host the payload may reference as `{sni}`.
      */
     suspend fun connect(
         host: String,
@@ -56,6 +64,7 @@ class InjectorSshClient {
         user: String,
         password: String,
         sniHost: String,
+        socketFactory: SocketFactory? = null,
     ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             require(validateSniHost(sniHost)) { "Invalid SNI host: $sniHost" }
@@ -69,7 +78,7 @@ class InjectorSshClient {
             // v1 trade-off, see the class doc: no host-key verification
             // for the user's own server.
             newSession.setConfig("StrictHostKeyChecking", "no")
-            newSession.setSocketFactory(TlsSniSocketFactory(sniHost))
+            newSession.setSocketFactory(socketFactory ?: TlsSniSocketFactory(sniHost))
             newSession.connect(InjectorConstants.SSH_CONNECT_TIMEOUT_MS)
             // SOCKS5 listener (the ssh -D equivalent): must start
             // after connect(), and binds 127.0.0.1:10810 — throws if

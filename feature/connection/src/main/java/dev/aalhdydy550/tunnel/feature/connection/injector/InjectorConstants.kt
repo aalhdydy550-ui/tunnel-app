@@ -22,4 +22,21 @@ object InjectorConstants {
 
     /** How long the TLS socket connect + handshake may take. */
     const val TLS_CONNECT_TIMEOUT_MS = 10_000
+
+    // ------------------------------------------------- HTTP inject (item 3)
+
+    /** How long the HTTP inject handshake may take (TCP + write + read). */
+    const val HTTP_INJECT_TIMEOUT_MS = 15_000
+
+    /** Carrier-proxy ports tried by the host scanner, in order. */
+    val DEFAULT_PROXY_PORTS: List<Int> = listOf(80, 8080)
+
+    /** Per-host timeout in the host scanner. */
+    const val HOST_SCAN_TIMEOUT_MS = 8_000
+
+    /** Most hosts scanned in one manual run (a manual tap, never periodic). */
+    const val MAX_HOSTS_PER_SCAN = 60
+
+    /** Most scan results kept in storage (newest first). */
+    const val MAX_SCAN_RESULTS = 50
 }

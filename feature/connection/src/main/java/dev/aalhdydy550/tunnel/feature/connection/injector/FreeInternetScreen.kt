@@ -19,18 +19,25 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.aalhdydy550.tunnel.feature.connection.TunnelState
+import dev.aalhdydy550.tunnel.feature.connection.injector.payload.InjectorMode
+import dev.aalhdydy550.tunnel.feature.connection.injector.payload.ScanStatus
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -38,16 +45,20 @@ import java.util.Locale
 /**
  * "Free internet" screen (drawer → «نت مجاني»):
  *
- *   warning card (verbatim) → SIM carrier card (detected + manual
- *   choice) → SSH profile picker (or the import guidance when there is
- *   none) → candidate networks (name + SNI host + carrier + status
- *   badge) → connect/disconnect → probe result.
+ *   warning card (verbatim) → transport mode (SNI / HTTP inject) →
+ *   HTTP inject settings (payload template + custom template + proxy,
+ *   only in HTTP mode) → SIM carrier card (detected + manual choice)
+ *   → SSH profile picker (or the import guidance when there is none)
+ *   → connect/disconnect → probe result → host scanner (manual tap
+ *   only) → candidate networks (name + SNI host + carrier + status
+ *   badge).
  *
  * Status rule, stated on every row: the default badge is
  * «جرّب على شريحتك — غير موثقة»; only a network this phone verified
  * itself (successful connection + passing probe) shows
  * «موثّقة على شريحتك ✓» with its date. No network is ever shown as
- * "working" before that.
+ * "working" before that. A scanner SUCCESS only means "the proxy
+ * answered 200 for this host" — never free data.
  */
 @Composable
 fun FreeInternetScreen(
@@ -66,6 +77,18 @@ fun FreeInternetScreen(
     val tunnelState by viewModel.tunnelState.collectAsState()
     val probeResult by viewModel.probeResult.collectAsState()
     val verifiedDates by viewModel.verifiedDates.collectAsState()
+    val injectorMode by viewModel.injectorMode.collectAsState()
+    val proxyHost by viewModel.proxyHost.collectAsState()
+    val allTemplates by viewModel.allTemplates.collectAsState()
+    val selectedTemplate by viewModel.selectedTemplate.collectAsState()
+    val extraScanHost by viewModel.extraScanHost.collectAsState()
+    val scanResults by viewModel.scanResults.collectAsState()
+    val scanState by viewModel.scanState.collectAsState()
+    val actionError by viewModel.actionError.collectAsState()
+
+    // Custom-template editor (transient input; saved via the ViewModel).
+    var customName by remember { mutableStateOf("") }
+    var customText by remember { mutableStateOf("") }
 
     // VPN permission: the system screen, then start the injector tunnel.
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
@@ -84,7 +107,8 @@ fun FreeInternetScreen(
     val connected = tunnelState is TunnelState.Started
     val busy = tunnelState is TunnelState.Starting ||
         tunnelState is TunnelState.Reconnecting
-    val canConnect = selectedNetwork != null && selectedSsh != null && !busy
+    val canConnect = selectedNetwork != null && selectedSsh != null && !busy &&
+        (injectorMode == InjectorMode.SNI || proxyHost.isNotBlank())
 
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
@@ -108,6 +132,172 @@ fun FreeInternetScreen(
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(12.dp),
                 )
+            }
+        }
+
+        // Transport mode: SNI (current) or HTTP inject (item 3).
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "طريقة الاتصال",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.selectMode(InjectorMode.SNI) }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(
+                            selected = injectorMode == InjectorMode.SNI,
+                            onClick = { viewModel.selectMode(InjectorMode.SNI) },
+                        )
+                        Column {
+                            Text(
+                                text = "SNI عبر TLS",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                text = "الطريقة الحالية — TLS باسم الشبكة.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.selectMode(InjectorMode.HTTP) }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(
+                            selected = injectorMode == InjectorMode.HTTP,
+                            onClick = { viewModel.selectMode(InjectorMode.HTTP) },
+                        )
+                        Column {
+                            Text(
+                                text = "حقن HTTP",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                text = "CONNECT عبر بروكسي الشريحة — تجريبي، غير موثّق.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    if (injectorMode == InjectorMode.HTTP) {
+                        Text(
+                            text = "الحقن عبر HTTP تقنية تجريبية غير موثّقة — " +
+                                "قد تخالف شروط شركة الاتصالات، ولا ضمان أنها " +
+                                "تعطي نتًا مجانيًا. الحكم اختبار ميداني " +
+                                "بعدّاد الباقة.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            }
+        }
+
+        // HTTP inject settings: template + custom template + proxy.
+        if (injectorMode == InjectorMode.HTTP) {
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "قالب الحمولة",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        for (template in allTemplates) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { viewModel.selectTemplate(template.id) }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                RadioButton(
+                                    selected = selectedTemplate.id == template.id,
+                                    onClick = { viewModel.selectTemplate(template.id) },
+                                )
+                                Text(
+                                    text = template.nameAr +
+                                        if (template.isCustom) " (مخصص)" else "",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (template.isCustom) {
+                                    TextButton(
+                                        onClick = { viewModel.deleteCustomTemplate(template.id) },
+                                    ) {
+                                        Text(text = "حذف")
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "قالب مخصص جديد",
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        OutlinedTextField(
+                            value = customName,
+                            onValueChange = { customName = it },
+                            label = { Text(text = "اسم القالب") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = customText,
+                            onValueChange = { customText = it },
+                            label = { Text(text = "نص الطلب — استخدم {host} و{port} و{sni}") },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = {
+                                if (viewModel.saveCustomTemplate(customName, customText)) {
+                                    customName = ""
+                                    customText = ""
+                                }
+                            },
+                        ) {
+                            Text(text = "حفظ القالب المخصص")
+                        }
+                    }
+                }
+            }
+        }
+
+        // Carrier-proxy address: used by the HTTP inject connect AND
+        // by the host scanner, so it is shown in both modes.
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "بروكسي الشريحة",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    OutlinedTextField(
+                        value = proxyHost,
+                        onValueChange = { viewModel.setProxyHost(it) },
+                        label = { Text(text = "عنوان البروكسي") },
+                        placeholder = { Text(text = "host أو host:port") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        text = "من إعدادات APN أو من شركة الاتصالات — " +
+                            "لا تُخترع قيمة. المنفذ الافتراضي 80 عند عدم كتابته. " +
+                            "يستخدمه الحقن HTTP وفاحص الهوستات.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
 
@@ -218,8 +408,16 @@ fun FreeInternetScreen(
                     when {
                         connected -> "قطع الاتصال"
                         busy -> "جارٍ الاتصال…"
+                        injectorMode == InjectorMode.HTTP -> "اتصال بالحقن HTTP"
                         else -> "اتصال بالنت المجاني"
                     },
+                )
+            }
+            if (actionError != null) {
+                Text(
+                    text = actionError!!,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
             if (tunnelState is TunnelState.Error) {
@@ -257,6 +455,102 @@ fun FreeInternetScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
+            }
+        }
+
+        // Host scanner: checks the selected carrier's SNI hosts
+        // through the user-entered proxy (manual tap only).
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "فاحص الهوستات",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text = "يفحص هوستات شبكات الشركة المختارة عبر " +
+                            "البروكسي أعلاه: هل يرد البروكسي 200 لهذا الهوست؟ " +
+                            "النجاح هنا يعني الرد فقط — لا يعني نتًا مجانيًا.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = extraScanHost,
+                        onValueChange = { viewModel.setExtraScanHost(it) },
+                        label = { Text(text = "هوست إضافي للفحص (اختياري)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { viewModel.scanHosts() },
+                        enabled = scanState !is ScanState.Running && proxyHost.isNotBlank(),
+                    ) {
+                        Text(text = "افحص الهوستات")
+                    }
+                    when (val state = scanState) {
+                        ScanState.Idle -> Unit
+                        ScanState.Running -> Text(
+                            text = "جارٍ فحص الهوستات…",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        is ScanState.Done -> Text(
+                            text = "فُحص ${state.checked} هوست — نجح ${state.succeeded}.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        is ScanState.Failed -> Text(
+                            text = state.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    val candidateHosts = candidates.map { it.sniHost.lowercase(Locale.US) }
+                    for (result in scanResults) {
+                        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = result.host,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                    )
+                                    Text(
+                                        text = when (result.status) {
+                                            ScanStatus.SUCCESS ->
+                                                "ناجح ✓ — البروكسي رد 200" +
+                                                    (result.latencyMs?.let { " (${it}ms)" } ?: "") +
+                                                    " — ${formatDate(result.checkedAt)}"
+                                            ScanStatus.FAILED ->
+                                                "فشل — البروكسي رفض أو لم يصل — ${formatDate(result.checkedAt)}"
+                                            ScanStatus.TIMEOUT ->
+                                                "مهلة — البروكسي قبل الاتصال ولم يرد — ${formatDate(result.checkedAt)}"
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (result.status == ScanStatus.SUCCESS) {
+                                            MaterialTheme.colorScheme.secondary
+                                        } else {
+                                            MaterialTheme.colorScheme.error
+                                        },
+                                    )
+                                }
+                                if (result.status == ScanStatus.SUCCESS &&
+                                    result.host.lowercase(Locale.US) in candidateHosts
+                                ) {
+                                    TextButton(
+                                        onClick = {
+                                            viewModel.selectNetworkBySniHost(result.host)
+                                        },
+                                    ) {
+                                        Text(text = "اختر هذه الشبكة")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 

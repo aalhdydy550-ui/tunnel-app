@@ -15,6 +15,17 @@ import dev.aalhdydy550.tunnel.core.database.TunnelDatabaseHolder
 import dev.aalhdydy550.tunnel.feature.connection.TunnelState
 import dev.aalhdydy550.tunnel.feature.connection.TunnelStateHolder
 import dev.aalhdydy550.tunnel.feature.connection.TunnelVpnService
+import dev.aalhdydy550.tunnel.feature.connection.injector.payload.HostScanner
+import dev.aalhdydy550.tunnel.feature.connection.injector.payload.HttpInjector
+import dev.aalhdydy550.tunnel.feature.connection.injector.payload.InjectorMode
+import dev.aalhdydy550.tunnel.feature.connection.injector.payload.PayloadGenerator
+import dev.aalhdydy550.tunnel.feature.connection.injector.payload.PayloadStore
+import dev.aalhdydy550.tunnel.feature.connection.injector.payload.PayloadTemplate
+import dev.aalhdydy550.tunnel.feature.connection.injector.payload.ScanStatus
+import dev.aalhdydy550.tunnel.feature.connection.injector.payload.ScannedHost
+import dev.aalhdydy550.tunnel.feature.connection.injector.payload.ScannedHostStore
+import dev.aalhdydy550.tunnel.feature.connection.injector.payload.SharedPreferencesPayloadStore
+import dev.aalhdydy550.tunnel.feature.connection.injector.payload.SharedPreferencesScannedHostStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -53,8 +64,16 @@ sealed interface ProbeResult {
     data class Failed(val message: String) : ProbeResult
 }
 
+/** State of one manual host-scan run. */
+sealed interface ScanState {
+    data object Idle : ScanState
+    data object Running : ScanState
+    data class Done(val checked: Int, val succeeded: Int) : ScanState
+    data class Failed(val message: String) : ScanState
+}
+
 /**
- * "Free internet" (SNI + SSH tunnel) screen state + actions.
+ * "Free internet" (SNI + SSH tunnel, or HTTP inject + SSH) screen state + actions.
  *
  * - Detects the SIM carrier with `TelephonyManager.getSimOperator()`
  *   (no permission of any kind); the user can override it by hand.
@@ -62,7 +81,13 @@ sealed interface ProbeResult {
  *   user's own SSH profiles (imported from the existing import screen).
  * - [connect] builds the injector config, asks for VPN permission if
  *   needed, then starts the tunnel through the engine's injector entry
- *   point. Nothing connects before the user presses connect.
+ *   point. Nothing connects before the user presses connect. In HTTP
+ *   mode the payload is built (and the proxy address validated) at
+ *   connect time; a failure shows an error and starts nothing.
+ * - The host scanner ([scanHosts]) is a manual diagnostic: it checks
+ *   which SNI hosts the user-entered proxy answers 200 for. A
+ *   SUCCESS there only means "the proxy answered"; unmetered traffic
+ *   is decided only by a field test with the data counter.
  * - Once the tunnel reports [TunnelState.Started] under the name of the
  *   network being tried, the traffic probe runs exactly once: on
  *   success the network is stored as verified on this SIM; on failure
@@ -86,6 +111,10 @@ class FreeInternetViewModel @Inject constructor(
     )
     private val verifiedStore: VerifiedNetworkStore =
         SharedPreferencesVerifiedNetworkStore(context)
+    private val payloadStore: PayloadStore =
+        SharedPreferencesPayloadStore(context)
+    private val scannedHostStore: ScannedHostStore =
+        SharedPreferencesScannedHostStore(context)
     private val probe = InjectorProbe()
 
     /** Live tunnel state, written by the service. */
@@ -137,7 +166,161 @@ class FreeInternetViewModel @Inject constructor(
         _selectedNetworkId.value = id
         // A new network means a fresh probe outcome.
         _probeResult.value = ProbeResult.Idle
+        _actionError.value = null
+        // The selected template is stored per network.
+        _selectedTemplateId.value = payloadStore.selectedTemplateId(id)
     }
+
+    /** Selects the candidate whose SNI host is [sniHost] (scan result tap). */
+    fun selectNetworkBySniHost(sniHost: String) {
+        val clean = sniHost.trim()
+        if (clean.isEmpty()) return
+        _rawCandidates.value
+            .firstOrNull { it.sniHost.equals(clean, ignoreCase = true) }
+            ?.let { selectNetwork(it.id) }
+    }
+
+    // ------------------------------------------------- injector mode (item 3)
+
+    /** Transport mode: SNI (default) or HTTP inject. Default is SNI. */
+    private val _injectorMode = MutableStateFlow(InjectorMode.SNI)
+    val injectorMode: StateFlow<InjectorMode> = _injectorMode.asStateFlow()
+
+    fun selectMode(mode: InjectorMode) {
+        _injectorMode.value = mode
+        _actionError.value = null
+    }
+
+    /** Carrier-proxy address as typed by the user (`host` or `host:port`). */
+    private val _proxyHost = MutableStateFlow("")
+    val proxyHost: StateFlow<String> = _proxyHost.asStateFlow()
+
+    fun setProxyHost(host: String) {
+        _proxyHost.value = host
+        _actionError.value = null
+    }
+
+    // ------------------------------------------------- payload templates
+
+    private val _customTemplates =
+        MutableStateFlow<List<PayloadTemplate>>(payloadStore.customTemplates())
+
+    /** Built-in templates + the user's custom ones. */
+    val allTemplates: StateFlow<List<PayloadTemplate>> = _customTemplates
+        .map { PayloadTemplate.BUILT_INS + it }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PayloadTemplate.BUILT_INS)
+
+    private val _selectedTemplateId = MutableStateFlow<String?>(null)
+
+    /** Effective template: the network's selection, else the default. */
+    val selectedTemplate: StateFlow<PayloadTemplate> = combine(
+        _selectedTemplateId,
+        allTemplates,
+    ) { id, templates ->
+        templates.firstOrNull { it.id == id } ?: PayloadTemplate.DEFAULT
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PayloadTemplate.DEFAULT)
+
+    fun selectTemplate(id: String) {
+        _selectedTemplateId.value = id
+        _selectedNetworkId.value?.let { payloadStore.setSelectedTemplateId(it, id) }
+        _actionError.value = null
+    }
+
+    /** Saves a user-written custom template and selects it. False on bad input. */
+    fun saveCustomTemplate(name: String, text: String): Boolean {
+        val cleanName = name.trim()
+        val cleanText = text.trim()
+        if (cleanName.isEmpty() || cleanText.isEmpty()) {
+            _actionError.value = "اكتب اسمًا ونصًا للقالب المخصص"
+            return false
+        }
+        val template = PayloadTemplate.custom(
+            id = "custom-${java.util.UUID.randomUUID()}",
+            nameAr = cleanName,
+            text = cleanText,
+        )
+        payloadStore.saveCustomTemplate(template)
+        _customTemplates.value = payloadStore.customTemplates()
+        selectTemplate(template.id)
+        return true
+    }
+
+    fun deleteCustomTemplate(id: String) {
+        payloadStore.deleteCustomTemplate(id)
+        _customTemplates.value = payloadStore.customTemplates()
+        if (_selectedTemplateId.value == id) {
+            _selectedTemplateId.value = null
+            _selectedNetworkId.value?.let { payloadStore.setSelectedTemplateId(it, null) }
+        }
+    }
+
+    // ------------------------------------------------- host scanner
+
+    private val _scanResults =
+        MutableStateFlow<List<ScannedHost>>(scannedHostStore.results())
+    val scanResults: StateFlow<List<ScannedHost>> = _scanResults.asStateFlow()
+
+    private val _scanState = MutableStateFlow<ScanState>(ScanState.Idle)
+    val scanState: StateFlow<ScanState> = _scanState.asStateFlow()
+
+    /** One extra host the user typed for this scan run (not persisted). */
+    private val _extraScanHost = MutableStateFlow("")
+    val extraScanHost: StateFlow<String> = _extraScanHost.asStateFlow()
+
+    fun setExtraScanHost(host: String) {
+        _extraScanHost.value = host
+    }
+
+    /**
+     * Scans the SNI hosts of the selected carrier's candidates (plus
+     * the extra typed host) through the user-entered proxy. Manual
+     * only — never automatic, never periodic. A SUCCESS here only
+     * means "the proxy answered 200"; unmetered traffic is decided
+     * only by a field test with the data counter.
+     */
+    fun scanHosts() {
+        val parsed = HttpInjector.parseProxyAddress(_proxyHost.value)
+        if (parsed == null) {
+            _scanState.value = ScanState.Failed(
+                "عنوان البروكسي غير صالح — اكتب host أو host:port",
+            )
+            return
+        }
+        val (proxyHost, proxyPort) = parsed
+        val carrier = _selectedCarrier.value
+        val hosts = buildList {
+            addAll(
+                _rawCandidates.value
+                    .filter { carrier == Carrier.UNKNOWN || it.carrier == carrier }
+                    .map { it.sniHost },
+            )
+            _extraScanHost.value.trim().takeIf { it.isNotEmpty() }?.let { add(it) }
+        }.distinct()
+        if (hosts.isEmpty()) {
+            _scanState.value = ScanState.Failed("لا توجد هوستات لفحصها")
+            return
+        }
+        val ports = (listOf(proxyPort) + InjectorConstants.DEFAULT_PROXY_PORTS).distinct()
+        _scanState.value = ScanState.Running
+        viewModelScope.launch(Dispatchers.IO) {
+            val results = HostScanner(proxyHost, ports).scan(hosts)
+            scannedHostStore.saveResults(results)
+            _scanResults.value = scannedHostStore.results()
+            _scanState.value = ScanState.Done(
+                checked = results.size,
+                succeeded = results.count { it.status == ScanStatus.SUCCESS },
+            )
+        }
+    }
+
+    // -------------------------------------------------------------- probe
+
+    private val _probeResult = MutableStateFlow<ProbeResult>(ProbeResult.Idle)
+    val probeResult: StateFlow<ProbeResult> = _probeResult.asStateFlow()
+
+    /** Last action error (bad proxy address, unbuildable payload, ...). */
+    private val _actionError = MutableStateFlow<String?>(null)
+    val actionError: StateFlow<String?> = _actionError.asStateFlow()
 
     // ------------------------------------------------------- SSH profiles
 
@@ -163,18 +346,15 @@ class FreeInternetViewModel @Inject constructor(
         _selectedSshProfile.value = option
     }
 
-    // -------------------------------------------------------------- probe
-
-    private val _probeResult = MutableStateFlow<ProbeResult>(ProbeResult.Idle)
-    val probeResult: StateFlow<ProbeResult> = _probeResult.asStateFlow()
-
     // --------------------------------------------------- VPN permission
 
     private val _vpnPermissionRequest = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val vpnPermissionRequest: SharedFlow<Unit> = _vpnPermissionRequest.asSharedFlow()
 
     /** The network + SSH pair [connect] was given, for re-connect after
-     * the VPN permission screen. */
+     * the VPN permission screen. Carries the mode, proxy and built
+     * payload too, so the post-permission start uses exactly what the
+     * user chose when they pressed connect. */
     private var pendingConnect: PendingInjectorConnect? = null
 
     /** Name of the network currently being tried (matches the
@@ -185,6 +365,10 @@ class FreeInternetViewModel @Inject constructor(
     private data class PendingInjectorConnect(
         val network: NetworkCandidate,
         val ssh: SshProfileOption,
+        val mode: InjectorMode,
+        val proxyHost: String,
+        val proxyPort: Int,
+        val payloadText: String,
     )
 
     init {
@@ -211,13 +395,17 @@ class FreeInternetViewModel @Inject constructor(
     fun connect() {
         val network = selectedNetwork.value ?: return
         val ssh = _selectedSshProfile.value ?: return
+        // In HTTP mode the payload is built now (and the proxy address
+        // validated now) — a failure shows an error instead of
+        // starting anything.
+        val pending = buildPending(network, ssh) ?: return
         viewModelScope.launch {
-            pendingConnect = PendingInjectorConnect(network, ssh)
+            pendingConnect = pending
             if (VpnService.prepare(context) != null) {
                 _vpnPermissionRequest.emit(Unit)
                 return@launch
             }
-            startInjector(network, ssh)
+            startInjector(pending)
         }
     }
 
@@ -225,7 +413,7 @@ class FreeInternetViewModel @Inject constructor(
     fun onVpnPermissionGranted() {
         viewModelScope.launch {
             val pending = pendingConnect ?: return@launch
-            startInjector(pending.network, pending.ssh)
+            startInjector(pending)
         }
     }
 
@@ -239,27 +427,67 @@ class FreeInternetViewModel @Inject constructor(
 
     // ------------------------------------------------------------ helpers
 
-    private fun startInjector(network: NetworkCandidate, ssh: SshProfileOption) {
+    /**
+     * Builds the pending connect for the current mode. SNI needs
+     * nothing extra; HTTP validates the proxy address and builds the
+     * payload now. Returns null (and sets [actionError]) on any bad
+     * input — nothing starts in that case.
+     */
+    private fun buildPending(
+        network: NetworkCandidate,
+        ssh: SshProfileOption,
+    ): PendingInjectorConnect? {
+        val mode = _injectorMode.value
+        if (mode == InjectorMode.SNI) {
+            return PendingInjectorConnect(network, ssh, mode, "", 0, "")
+        }
+        val parsed = HttpInjector.parseProxyAddress(_proxyHost.value)
+        if (parsed == null) {
+            _actionError.value = "عنوان البروكسي غير صالح — اكتب host أو host:port"
+            return null
+        }
+        val (proxyHost, proxyPort) = parsed
+        val payloadText = try {
+            PayloadGenerator.buildText(
+                selectedTemplate.value,
+                ssh.host,
+                ssh.port,
+                network.sniHost,
+            )
+        } catch (e: IllegalArgumentException) {
+            _actionError.value = e.message ?: "تعذّرت كتابة الحمولة"
+            return null
+        }
+        return PendingInjectorConnect(network, ssh, mode, proxyHost, proxyPort, payloadText)
+    }
+
+    private fun startInjector(pending: PendingInjectorConnect) {
         // The engine's delivered builder takes no parameters: the
         // SOCKS port (InjectorConstants.INJECTOR_SOCKS_PORT) is baked
         // into the document itself by InjectorConfig, and the SSH/SNI
         // parameters travel as Intent extras (see startInjectorIntent).
+        // In HTTP mode the mode, proxy and built payload travel as
+        // extras too (memory only, like the SSH password).
         val configJson = InjectorConfig.buildInjectorConfig()
-        probePendingFor = network.name
+        probePendingFor = pending.network.name
         probeDoneForAttempt = false
         _probeResult.value = ProbeResult.Idle
         ContextCompat.startForegroundService(
             context,
             TunnelVpnService.startInjectorIntent(
                 context,
-                ssh.host,
-                ssh.port,
-                ssh.user,
-                ssh.password,
-                network.sniHost,
-                network.id,
-                network.name,
+                pending.ssh.host,
+                pending.ssh.port,
+                pending.ssh.user,
+                pending.ssh.password,
+                pending.network.sniHost,
+                pending.network.id,
+                pending.network.name,
                 configJson,
+                mode = pending.mode,
+                proxyHost = pending.proxyHost,
+                proxyPort = pending.proxyPort,
+                payloadText = pending.payloadText,
             ),
         )
     }
