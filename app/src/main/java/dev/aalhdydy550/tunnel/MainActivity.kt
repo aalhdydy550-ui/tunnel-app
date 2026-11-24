@@ -57,6 +57,8 @@ import dagger.hilt.android.AndroidEntryPoint
 import dev.aalhdydy550.tunnel.core.ui.R as CoreUiR
 import dev.aalhdydy550.tunnel.core.ui.TunnelTheme
 import dev.aalhdydy550.tunnel.feature.connection.ConnectionViewModel
+import dev.aalhdydy550.tunnel.feature.connection.injector.FreeInternetScreen
+import dev.aalhdydy550.tunnel.feature.connection.injector.FreeInternetViewModel
 import dev.aalhdydy550.tunnel.feature.profiles.ImportScreen
 import dev.aalhdydy550.tunnel.feature.profiles.ImportViewModel
 import dev.aalhdydy550.tunnel.feature.profiles.ProfilesViewModel
@@ -139,6 +141,14 @@ class MainActivity : ComponentActivity() {
                                 },
                             )
                             NavigationDrawerItem(
+                                label = { Text("نت مجاني") },
+                                selected = screen == Screen.FREE_INTERNET,
+                                onClick = {
+                                    screen = Screen.FREE_INTERNET
+                                    scope.launch { drawerState.close() }
+                                },
+                            )
+                            NavigationDrawerItem(
                                 label = { Text("المستودع على GitHub") },
                                 selected = false,
                                 onClick = {
@@ -171,7 +181,9 @@ class MainActivity : ComponentActivity() {
                                     containerColor = MaterialTheme.colorScheme.surface,
                                 ),
                                 navigationIcon = {
-                                    if (screen == Screen.IMPORT) {
+                                    if (screen == Screen.IMPORT ||
+                                        screen == Screen.FREE_INTERNET
+                                    ) {
                                         IconButton(onClick = { screen = Screen.SERVERS }) {
                                             Icon(
                                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -238,9 +250,13 @@ class MainActivity : ComponentActivity() {
                                 Screen.SERVERS -> ServersScreen(
                                     connectionViewModel = hiltViewModel<ConnectionViewModel>(),
                                     profilesViewModel = hiltViewModel<ProfilesViewModel>(),
+                                    onOpenFreeInternet = { screen = Screen.FREE_INTERNET },
                                 )
                                 Screen.IMPORT -> ImportScreen(
                                     viewModel = hiltViewModel<ImportViewModel>(),
+                                )
+                                Screen.FREE_INTERNET -> FreeInternetScreen(
+                                    viewModel = hiltViewModel<FreeInternetViewModel>(),
                                 )
                             }
                         }
@@ -284,5 +300,5 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private enum class Screen { SERVERS, IMPORT }
+    private enum class Screen { SERVERS, IMPORT, FREE_INTERNET }
 }
