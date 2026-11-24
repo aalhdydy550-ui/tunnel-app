@@ -84,6 +84,7 @@ fun ServersScreen(
 
     val profiles by profilesViewModel.profiles.collectAsState()
     val selectedId by profilesViewModel.selectedProfileId.collectAsState()
+    val hasPublicFreeServers by profilesViewModel.hasPublicFreeServers.collectAsState()
     val latency by profilesViewModel.latency.collectAsState()
     val latencyTesting by profilesViewModel.latencyTesting.collectAsState()
     val selectingFastest by profilesViewModel.selectingFastest.collectAsState()
@@ -181,6 +182,27 @@ fun ServersScreen(
                 },
             )
         }
+        // The list contains public free servers (default subscription):
+        // say so plainly — slow/unstable, never for logins or banking.
+        if (hasPublicFreeServers) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                    ),
+                ) {
+                    Text(
+                        text = "تنبيه: بعض الخوادم هنا من الاشتراك المجاني " +
+                            "الافتراضي — " +
+                            "خوادم عامة مجانية قد تكون بطيئة أو غير مستقرة، " +
+                            "ولا تستخدمها لتسجيل الدخول أو في البنوك.",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            }
+        }
         // While a latency measurement is running (it starts
         // automatically when the server list opens), show a hint.
         item {
@@ -196,7 +218,9 @@ fun ServersScreen(
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        text = "لا توجد خوادم بعد — استورد رابطًا من شاشة «استيراد».",
+                        text = "لا توجد خوادم بعد — الاشتراك المجاني الافتراضي " +
+                            "يُضاف ويُحدَّث تلقائيًا عند توفر الإنترنت، أو " +
+                            "استورد رابطًا من شاشة «استيراد».",
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(16.dp),
                     )

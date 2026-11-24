@@ -8,14 +8,18 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.aalhdydy550.tunnel.core.data.model.Subscription
+import dev.aalhdydy550.tunnel.core.data.profile.DefaultSubscription
 import dev.aalhdydy550.tunnel.core.data.profile.ProfileLinkParser
+import dev.aalhdydy550.tunnel.core.data.repository.DefaultSubscriptionSeeder
 import dev.aalhdydy550.tunnel.core.data.repository.ProfileRepository
+import dev.aalhdydy550.tunnel.core.data.repository.SettingsRepository
 import dev.aalhdydy550.tunnel.core.data.repository.SubscriptionRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -29,12 +33,18 @@ import javax.inject.Inject
  *
  * An optional 2-letter country code is applied to every imported
  * profile, so its flag emoji shows next to the server.
+ *
+ * Also owns the built-in default free subscription's URL setting:
+ * the URL lives in [SettingsRepository] (never hard-coded in the UI),
+ * and saving it re-enables + re-seeds the default subscription.
  */
 @HiltViewModel
 class ImportViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val profileRepository: ProfileRepository,
     private val subscriptionRepository: SubscriptionRepository,
+    private val settingsRepository: SettingsRepository,
+    private val defaultSubscriptionSeeder: DefaultSubscriptionSeeder,
 ) : ViewModel() {
 
     data class ImportOutcome(val imported: Int, val errors: List<String>)
@@ -51,6 +61,22 @@ class ImportViewModel @Inject constructor(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
             emptyList(),
+        )
+
+    /** The default free subscription's URL (editable setting). */
+    val defaultSubscriptionUrl: StateFlow<String> =
+        settingsRepository.defaultSubscriptionUrl.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            DefaultSubscription.DEFAULT_URL,
+        )
+
+    /** False after the user deleted the default subscription. */
+    val defaultSubscriptionEnabled: StateFlow<Boolean> =
+        settingsRepository.defaultSubscriptionEnabled.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            true,
         )
 
     fun importText(text: String, countryCode: String) {
@@ -130,7 +156,44 @@ class ImportViewModel @Inject constructor(
     /** Deletes a subscription and the profiles that came from it. */
     fun deleteSubscription(id: Long) {
         viewModelScope.launch {
+            val isDefault = subscriptions.value
+                .firstOrNull { it.id == id }?.isDefault == true
             subscriptionRepository.deleteSubscription(id)
+            if (isDefault) {
+                // Respect the deletion: the seeder must not silently
+                // re-add the default subscription on the next start.
+                // Saving a URL below re-enables it.
+                settingsRepository.setDefaultSubscriptionEnabled(false)
+            }
+        }
+    }
+
+    /**
+     * Saves a new URL for the default free subscription (https only —
+     * anything else is rejected and reported), re-enables it when it
+     * was deleted, and applies it now: the stored row's URL is
+     * updated and fetched once. A failed fetch still saves the URL
+     * (the daily worker retries it) and reports the error.
+     */
+    fun updateDefaultSubscriptionUrl(url: String) {
+        if (_importing.value) return
+        viewModelScope.launch {
+            _importing.value = true
+            try {
+                settingsRepository.setDefaultSubscriptionUrl(url)
+                settingsRepository.setDefaultSubscriptionEnabled(true)
+                defaultSubscriptionSeeder.ensureSeeded()
+                val id = settingsRepository.defaultSubscriptionId.first()
+                val refreshed = subscriptionRepository.getSubscription(id)
+                _outcome.value = ImportOutcome(
+                    refreshed?.lastProfileCount ?: 0,
+                    listOfNotNull(refreshed?.lastError?.takeIf { it.isNotBlank() }),
+                )
+            } catch (e: Exception) {
+                _outcome.value = ImportOutcome(0, listOf(e.message ?: "bad URL"))
+            } finally {
+                _importing.value = false
+            }
         }
     }
 

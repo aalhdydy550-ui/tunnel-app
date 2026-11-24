@@ -23,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import dev.aalhdydy550.tunnel.core.data.profile.DefaultSubscription
 
 /**
  * Import screen: paste links (one per line), paste from the clipboard,
@@ -44,6 +45,9 @@ fun ImportScreen(
     val outcome by viewModel.outcome.collectAsState()
     val importing by viewModel.importing.collectAsState()
     val subscriptions by viewModel.subscriptions.collectAsState()
+    val defaultUrl by viewModel.defaultSubscriptionUrl.collectAsState()
+    val defaultEnabled by viewModel.defaultSubscriptionEnabled.collectAsState()
+    var defaultUrlText by remember(defaultUrl) { mutableStateOf(defaultUrl) }
 
     val filePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent(),
@@ -96,6 +100,36 @@ fun ImportScreen(
             modifier = Modifier.fillMaxWidth(),
         ) { Text("اختيار ملف (روابط / WireGuard .conf / JSON)") }
         Text(
+            text = "الاشتراك المجاني الافتراضي",
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            text = "قائمة عامة مجانية تُضاف تلقائيًا عند أول تشغيل وتُحدَّث " +
+                "كل يوم. " + DefaultSubscription.PUBLIC_WARNING,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (!defaultEnabled) {
+            Text(
+                text = "الاشتراك المجاني محذوف حاليًا — احفظ رابطًا أدناه " +
+                    "لإعادة إضافته.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        OutlinedTextField(
+            value = defaultUrlText,
+            onValueChange = { defaultUrlText = it; viewModel.clearOutcome() },
+            label = { Text("رابط الاشتراك المجاني (https://…)") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
+        Button(
+            onClick = { viewModel.updateDefaultSubscriptionUrl(defaultUrlText) },
+            enabled = defaultUrlText.isNotBlank() && !importing,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("حفظ رابط الاشتراك المجاني وتحديثه الآن") }
+        Text(
             text = "الاشتراكات",
             style = MaterialTheme.typography.titleMedium,
         )
@@ -128,6 +162,14 @@ fun ImportScreen(
                         text = subscription.name,
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                    if (subscription.isDefault) {
+                        Text(
+                            text = "اشتراك افتراضي — سيرفرات مجانية عامة. " +
+                                DefaultSubscription.PUBLIC_WARNING,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                     Text(
                         text = subscription.url,
                         style = MaterialTheme.typography.bodySmall,
