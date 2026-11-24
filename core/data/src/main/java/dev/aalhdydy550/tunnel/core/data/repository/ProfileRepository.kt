@@ -63,9 +63,9 @@ class ProfileRepository @Inject constructor(
         if (trimmed.isEmpty()) {
             return ProfileLinkParser.ImportResult(emptyList(), listOf("empty input"))
         }
-        if (trimmed.startsWith("[")) {
-            return importProfilesFromJson(trimmed)
-        }
+        // WireGuard `.conf` first: a .conf starts with `[Interface]`, so the
+        // JSON-array check below (`startsWith("[")`) would swallow it and
+        // report "invalid backup JSON" for every .conf import.
         if ("[Interface]" in trimmed && "[Peer]" in trimmed) {
             return try {
                 val profile = WireGuardConfParser.parseConf(trimmed, fileName)
@@ -73,6 +73,9 @@ class ProfileRepository @Inject constructor(
             } catch (e: IllegalArgumentException) {
                 ProfileLinkParser.ImportResult(emptyList(), listOf(e.message ?: "invalid WireGuard config"))
             }
+        }
+        if (trimmed.startsWith("[")) {
+            return importProfilesFromJson(trimmed)
         }
         if (trimmed.startsWith("{")) {
             return try {
