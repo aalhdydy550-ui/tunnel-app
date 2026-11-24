@@ -13,6 +13,13 @@
 # (CI run 41). Hilt 2.57.2 and 2.58 are clean (no such reference).
 # Do NOT bump Hilt past 2.58 without upgrading AGP to 9.x first
 # (AGP 9.0.0 exists, but it requires Gradle 9.x).
+# Hilt 2.58's hilt-compiler brings kotlin-metadata-jvm 2.2.20, which
+# reads Kotlin metadata only up to 2.3.0 — but a dependency compiled
+# with Kotlin 2.4 carries metadata 2.4.0, so :app:hiltJavaCompileDebug
+# fails with "Provided Metadata instance has version 2.4.0, while
+# maximum supported version is 2.3.0" (CI run 64). kotlinMetadataJvm
+# is forced to 2.4.21 in the root build file so Hilt can read it.
+# Do NOT drop that force while Hilt stays on 2.58.
 # Dependency ceiling for AGP 8.13.2 + compileSdk 36 (CI run 42):
 # ':app:checkDebugAarMetadata' fails when any AAR declares
 # minCompileSdk > 36 or minAgpVersion > 8.13.2. Verified 2026-11-24
@@ -29,6 +36,7 @@ agp = "8.13.2"
 kotlin = "2.3.21"
 ksp = "2.3.14"
 hilt = "2.58"
+kotlinMetadataJvm = "2.4.21"
 composeBom = "2026.06.01"
 room = "2.8.5"
 workmanager = "2.12.0"
