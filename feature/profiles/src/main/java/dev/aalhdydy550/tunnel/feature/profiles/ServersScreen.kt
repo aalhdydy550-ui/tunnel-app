@@ -279,6 +279,7 @@ private fun SettingsSection(
     onRetryRoutingDownload: () -> Unit,
     onExportBackup: () -> Unit,
 ) {
+    val context = LocalContext.current
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
             text = "الإعدادات",
