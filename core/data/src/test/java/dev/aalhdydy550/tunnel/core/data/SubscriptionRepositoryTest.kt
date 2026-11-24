@@ -2,6 +2,7 @@ package dev.aalhdydy550.tunnel.core.data
 
 import dev.aalhdydy550.tunnel.core.data.model.Profile
 import dev.aalhdydy550.tunnel.core.data.model.ProfileType
+import dev.aalhdydy550.tunnel.core.data.profile.DefaultSubscription
 import dev.aalhdydy550.tunnel.core.data.repository.SubscriptionRepository
 import dev.aalhdydy550.tunnel.core.database.ProfileDao
 import dev.aalhdydy550.tunnel.core.database.ProfileEntity
@@ -289,5 +290,141 @@ class SubscriptionRepositoryTest {
         )
         val id = repository.addSubscription("https://subs.example.com/list.txt")
         assertEquals("subs.example.com", subscriptionDao.getById(id)!!.name)
+    }
+
+    // ---- Default subscription (ensureDefaultSubscription) ----
+
+    private fun defaultBody() =
+        "vless://11111111-1111-1111-1111-111111111111@203.0.113.10:443#FreeOne"
+
+    @Test
+    fun `ensureDefaultSubscription inserts and fetches once when absent`() = runTest {
+        val profileDao = FakeProfileDao()
+        val subscriptionDao = FakeSubscriptionDao()
+        val server = serverWith(defaultBody())
+        try {
+            val repository = SubscriptionRepository(subscriptionDao, profileDao, client())
+            val id = repository.ensureDefaultSubscription(
+                "http://[::1]:${server.port}/sub",
+                null,
+            )
+            assertTrue(id > 0)
+            val row = subscriptionDao.getById(id)!!
+            assertTrue(row.isDefault)
+            assertEquals(DefaultSubscription.DEFAULT_NAME, row.name)
+            assertEquals(1, row.lastProfileCount)
+            assertEquals("", row.lastError)
+            assertTrue(row.lastFetchedAt > 0)
+            val profiles = profileDao.getAll().first()
+            assertEquals(1, profiles.size)
+            assertEquals("FreeOne", profiles[0].name)
+            assertEquals(id, profiles[0].subscriptionId)
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun `ensureDefaultSubscription adopts an existing same-URL row`() = runTest {
+        val profileDao = FakeProfileDao()
+        val subscriptionDao = FakeSubscriptionDao()
+        val server = serverWith(defaultBody())
+        try {
+            val existingId = subscriptionDao.insert(
+                SubscriptionEntity(
+                    url = "http://[::1]:${server.port}/sub",
+                    name = "Hand-added",
+                    isDefault = false,
+                ),
+            )
+            val repository = SubscriptionRepository(subscriptionDao, profileDao, client())
+            val id = repository.ensureDefaultSubscription(
+                "http://[::1]:${server.port}/sub",
+                null,
+            )
+            assertEquals(existingId, id)
+            val row = subscriptionDao.getById(id)!!
+            assertTrue(row.isDefault)
+            assertEquals(1, row.lastProfileCount)
+            assertEquals(1, profileDao.count())
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun `ensureDefaultSubscription skips the fetch when already fetched`() = runTest {
+        val profileDao = FakeProfileDao()
+        val subscriptionDao = FakeSubscriptionDao()
+        // An https URL on a closed loopback port on purpose: if the
+        // code tried to fetch, the connect would fail and an error
+        // would be recorded — the test fails unless the fetch is skipped.
+        val id = subscriptionDao.insert(
+            SubscriptionEntity(
+                url = "https://127.0.0.1:1/sub",
+                name = DefaultSubscription.DEFAULT_NAME,
+                isDefault = true,
+                lastFetchedAt = 123L,
+                lastProfileCount = 2,
+            ),
+        )
+        val repository = SubscriptionRepository(subscriptionDao, profileDao, client())
+        val returned = repository.ensureDefaultSubscription(
+            "https://127.0.0.1:1/sub",
+            id,
+        )
+        assertEquals(id, returned)
+        val row = subscriptionDao.getById(id)!!
+        assertEquals(123L, row.lastFetchedAt)
+        assertEquals(2, row.lastProfileCount)
+        assertEquals("", row.lastError)
+        assertEquals(0, profileDao.count())
+    }
+
+    @Test
+    fun `ensureDefaultSubscription updates the URL and refetches when it changed`() = runTest {
+        val profileDao = FakeProfileDao()
+        val subscriptionDao = FakeSubscriptionDao()
+        val server = serverWith(defaultBody())
+        try {
+            val id = subscriptionDao.insert(
+                SubscriptionEntity(
+                    url = "https://old.example.com/sub",
+                    name = DefaultSubscription.DEFAULT_NAME,
+                    isDefault = true,
+                    lastFetchedAt = 123L,
+                    lastProfileCount = 5,
+                ),
+            )
+            val repository = SubscriptionRepository(subscriptionDao, profileDao, client())
+            val returned = repository.ensureDefaultSubscription(
+                "http://[::1]:${server.port}/sub",
+                id,
+            )
+            assertEquals(id, returned)
+            val row = subscriptionDao.getById(id)!!
+            assertEquals("http://[::1]:${server.port}/sub", row.url)
+            assertTrue(row.isDefault)
+            assertEquals(1, row.lastProfileCount)
+            assertTrue(row.lastFetchedAt > 0)
+            assertEquals(1, profileDao.count())
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun `ensureDefaultSubscription rejects a non-http URL`() = runTest {
+        val repository = SubscriptionRepository(
+            FakeSubscriptionDao(),
+            FakeProfileDao(),
+            client(),
+        )
+        try {
+            repository.ensureDefaultSubscription("ftp://example.com/sub", null)
+            org.junit.Assert.fail("expected an exception for a non-http URL")
+        } catch (e: IllegalArgumentException) {
+            assertTrue(e.message!!.contains("http"))
+        }
     }
 }
