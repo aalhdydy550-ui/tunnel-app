@@ -2,6 +2,7 @@ package dev.aalhdydy550.tunnel.feature.connection.settings
 
 import dev.aalhdydy550.tunnel.core.data.net.LocalProxySettings
 import dev.aalhdydy550.tunnel.core.data.repository.AllowInsecureStore
+import dev.aalhdydy550.tunnel.core.data.repository.KillSwitchStore
 import dev.aalhdydy550.tunnel.core.data.repository.LocalProxyStore
 import dev.aalhdydy550.tunnel.core.data.repository.ProxyMode
 import dev.aalhdydy550.tunnel.core.data.repository.ProxyModeStore
@@ -23,8 +24,8 @@ import org.junit.Test
 /**
  * Unit tests for [SettingsViewModel] with fake stores: default
  * loading, port validation, persistence, the immediate-save
- * toggles (LAN sharing, allow-insecure, proxy mode), and restoring
- * a saved proxy mode.
+ * toggles (LAN sharing, allow-insecure, proxy mode, kill switch),
+ * and restoring a saved proxy mode / kill-switch value.
  *
  * `Dispatchers.Main` is an [UnconfinedTestDispatcher], so the
  * ViewModel's `viewModelScope` work runs synchronously and the state
@@ -81,6 +82,19 @@ class SettingsViewModelTest {
         }
     }
 
+    private class FakeKillSwitchStore(
+        initial: Boolean = false,
+    ) : KillSwitchStore {
+        private val _enabled = MutableStateFlow(initial)
+        override val enabled: Flow<Boolean> = _enabled
+        val saved = mutableListOf<Boolean>()
+
+        override suspend fun setEnabled(enabled: Boolean) {
+            saved += enabled
+            _enabled.value = enabled
+        }
+    }
+
     @Before
     fun setUp() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
@@ -95,7 +109,8 @@ class SettingsViewModelTest {
         store: FakeLocalProxyStore = FakeLocalProxyStore(),
         insecure: FakeAllowInsecureStore = FakeAllowInsecureStore(),
         proxyMode: FakeProxyModeStore = FakeProxyModeStore(),
-    ) = SettingsViewModel(store, insecure, proxyMode)
+        killSwitch: FakeKillSwitchStore = FakeKillSwitchStore(),
+    ) = SettingsViewModel(store, insecure, proxyMode, killSwitch)
 
     @Test
     fun `init loads the stored defaults`() {
@@ -107,6 +122,7 @@ class SettingsViewModelTest {
         assertNull(state.portError)
         assertFalse(state.allowOtherDevices)
         assertFalse(state.allowInsecure)
+        assertFalse(state.killSwitchEnabled)
     }
 
     @Test
@@ -236,6 +252,32 @@ class SettingsViewModelTest {
         val proxyMode = FakeProxyModeStore(initial = ProxyMode.PROXY)
         val vm = viewModel(proxyMode = proxyMode)
         assertEquals(ProxyMode.PROXY, vm.uiState.value.proxyMode)
+        assertFalse(vm.uiState.value.isLoading)
+    }
+
+    @Test
+    fun `default kill switch is off`() {
+        val vm = viewModel()
+        assertFalse(vm.uiState.value.killSwitchEnabled)
+    }
+
+    @Test
+    fun `toggling kill switch saves immediately and updates the state`() {
+        val killSwitch = FakeKillSwitchStore()
+        val vm = viewModel(killSwitch = killSwitch)
+        vm.onKillSwitchChange(true)
+        assertTrue(vm.uiState.value.killSwitchEnabled)
+        assertEquals(listOf(true), killSwitch.saved)
+        vm.onKillSwitchChange(false)
+        assertFalse(vm.uiState.value.killSwitchEnabled)
+        assertEquals(listOf(true, false), killSwitch.saved)
+    }
+
+    @Test
+    fun `init restores a saved kill switch value`() {
+        val killSwitch = FakeKillSwitchStore(initial = true)
+        val vm = viewModel(killSwitch = killSwitch)
+        assertTrue(vm.uiState.value.killSwitchEnabled)
         assertFalse(vm.uiState.value.isLoading)
     }
 }
