@@ -102,7 +102,7 @@ fun DnsSettingsScreen(
                             val subtitle = when (preset) {
                                 DnsPreset.AUTO -> "يفحص الأسرع عند الاتصال"
                                 DnsPreset.CUSTOM -> "خادم تدخله بنفسك"
-                                else -> preset.address
+                                else -> preset.address ?: ""
                             }
                             Text(
                                 text = subtitle,
@@ -133,10 +133,11 @@ fun DnsSettingsScreen(
                         isError = state.customError != null,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    if (state.customError != null) {
+                    val customError = state.customError
+                    if (customError != null) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = state.customError,
+                            text = customError,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                         )
