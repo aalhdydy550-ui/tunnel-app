@@ -34,10 +34,22 @@ object ProtocolSpeed {
 
     /**
      * The fastest reachable profile: lowest latency first, then the
-     * protocol rank. Returns `null` when nothing answered.
+     * protocol rank.
+     *
+     * When nothing answered, falls back to [fallback] (the currently
+     * selected profile) or, when that is null, to the first profile
+     * in the list — so the connect button still connects to a server
+     * instead of doing nothing. This is the normal case for a list
+     * of UDP-only servers (WireGuard, Hysteria2, TUIC, ZIVPN):
+     * they are never TCP-probed, so they never "answer", yet they
+     * are perfectly connectable. Returns `null` only when the list
+     * is empty — there is no server at all to connect to.
      */
-    fun pickFastest(results: List<LatencyTester.LatencyResult>): Profile? {
-        return results
+    fun pickFastest(
+        results: List<LatencyTester.LatencyResult>,
+        fallback: Profile? = null,
+    ): Profile? {
+        val fastest = results
             .filter { it.latencyMs != null }
             .minWithOrNull(
                 compareBy(
@@ -46,5 +58,6 @@ object ProtocolSpeed {
                 ),
             )
             ?.profile
+        return fastest ?: fallback ?: results.firstOrNull()?.profile
     }
 }
