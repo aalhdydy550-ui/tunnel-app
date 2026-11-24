@@ -86,4 +86,11 @@ dependencies {
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
+
+    // QR import (batch 1, item #1): ZXing core, Apache-2.0, pure Java —
+    // no ML Kit (rejected: model download + memory on a 2 GB phone).
+    // Declared here per the batch instruction; the decoder itself lives
+    // in :core:data, which declares the same artifact (see its
+    // build.gradle.kts) so the module that compiles it owns it.
+    implementation("com.google.zxing:core:3.5.3")
 }
