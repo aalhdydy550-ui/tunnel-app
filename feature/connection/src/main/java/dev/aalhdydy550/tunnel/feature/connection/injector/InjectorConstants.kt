@@ -11,7 +11,7 @@ package dev.aalhdydy550.tunnel.feature.connection.injector
  * 127.0.0.1:10810 → sing-box (`socks` outbound) → TUN.
  */
 object InjectorConstants {
-    /** Local SOCKS5 port the JSch dynamic forward listens on. */
+    /** Local SOCKS5 port the in-app SOCKS server listens on. */
     const val INJECTOR_SOCKS_PORT = 10810
 
     /** Loopback address the dynamic forward binds to (never 0.0.0.0). */
