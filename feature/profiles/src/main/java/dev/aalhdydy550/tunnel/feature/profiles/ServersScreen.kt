@@ -47,12 +47,14 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import dev.aalhdydy550.tunnel.core.data.model.ProfileType
 import dev.aalhdydy550.tunnel.core.data.net.LatencyTester
+import dev.aalhdydy550.tunnel.core.data.repository.ProxyMode
 import dev.aalhdydy550.tunnel.core.data.profile.OvpnConfParser
 import dev.aalhdydy550.tunnel.core.data.routing.RoutingDataState
 import dev.aalhdydy550.tunnel.core.ui.R as CoreUiR
 import dev.aalhdydy550.tunnel.core.ui.components.ProfileRow
 import dev.aalhdydy550.tunnel.feature.connection.ConnectionPanel
 import dev.aalhdydy550.tunnel.feature.connection.ConnectionViewModel
+import dev.aalhdydy550.tunnel.feature.connection.settings.SettingsViewModel
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -139,6 +141,13 @@ fun ServersScreen(
             }
         }
     }
+
+    // Kill switch: same activity-scoped SettingsViewModel instance
+    // the Settings screen uses (MainActivity composes both screens
+    // in one activity with no NavHost), so the toggle here and the
+    // one in Settings stay in sync through the same store Flow.
+    val settingsViewModel: SettingsViewModel = hiltViewModel()
+    val settingsState by settingsViewModel.uiState.collectAsState()
 
     // Locked export (.aytun): same SAF pattern, octet-stream.
     val lockedExportViewModel: LockedExportViewModel = hiltViewModel()
@@ -349,6 +358,9 @@ fun ServersScreen(
                     profilesViewModel.markKillSwitchGuided()
                     context.startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
                 },
+                killSwitchEnabled = settingsState.killSwitchEnabled,
+                proxyMode = settingsState.proxyMode,
+                onKillSwitchChange = { settingsViewModel.onKillSwitchChange(it) },
                 autoStartOnBoot = autoStartOnBoot,
                 onAutoStartChange = { profilesViewModel.setAutoStartOnBoot(it) },
                 adsBlocking = adsBlocking,
@@ -399,6 +411,9 @@ private fun SettingsSection(
     onRequestBatteryExemption: () -> Unit,
     killSwitchGuided: Boolean,
     onOpenVpnSettings: () -> Unit,
+    killSwitchEnabled: Boolean,
+    proxyMode: ProxyMode,
+    onKillSwitchChange: (Boolean) -> Unit,
     autoStartOnBoot: Boolean,
     onAutoStartChange: (Boolean) -> Unit,
     adsBlocking: Boolean,
@@ -449,19 +464,59 @@ private fun SettingsSection(
             )
         }
 
-        // Kill switch: Android's Always-on VPN + "Block connections
-        // without VPN". The OS enforces it; the app can only guide the
-        // user to the system setting.
+        // Kill switch: a real in-app toggle (the same setting as in
+        // the Settings screen). When enabled, the TUN stays open
+        // while the tunnel is down, so no traffic leaves the device.
+        // The button below still opens the system VPN settings for
+        // the stronger Always-on cover, which survives the death of
+        // the whole process.
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "مفتاح القتل (Kill Switch)",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Switch(
+                        checked = killSwitchEnabled,
+                        enabled = proxyMode != ProxyMode.PROXY,
+                        onCheckedChange = onKillSwitchChange,
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "مفتاح القتل (Kill Switch)",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    text = "لمنع أي تسريب أثناء إعادة الاتصال، فعّل من إعدادات " +
-                        "أندرويد: VPN الدائم + «حظر الاتصالات بدون VPN».",
+                    text = "عند تفعيله لن يخرج أي ترافيك من الجهاز إطلاقًا " +
+                        "أثناء انقطاع النفق — حتى الإشعارات — إلى أن يعود " +
+                        "الاتصال أو توقفه يدويًا",
                     style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "لا ينجو من موت العملية — إن قتل النظام التطبيق " +
+                        "كله عاد الإنترنت مباشرة؛ والغطاء الأقوى يبقى " +
+                        "Always-on في النظام.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (proxyMode == ProxyMode.PROXY) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "لا يعمل في وضع البروكسي — بلا TUN لا يوجد " +
+                            "ما يُبقيه مفتوحًا.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "يسري على الاتصال التالي",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(onClick = onOpenVpnSettings) {
