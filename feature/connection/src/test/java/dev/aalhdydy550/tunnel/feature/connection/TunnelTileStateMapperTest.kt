@@ -51,6 +51,20 @@ class TunnelTileStateMapperTest {
     }
 
     @Test
+    fun `blocked maps to connecting so the tile stays tappable`() {
+        // Kill switch blocking (item 2): the tile stays ACTIVE and
+        // tappable, and a tap stops the tunnel (the escape hatch) —
+        // it must never map to DISCONNECTED (a tap would try to
+        // start a new tunnel while the TUN is held open).
+        assertEquals(
+            TileUiState.CONNECTING,
+            TunnelTileStateMapper.map(TunnelState.Blocked("Home")),
+        )
+        assertTrue(TunnelTileStateMapper.isRunning(TunnelState.Blocked("Home")))
+        assertFalse(TunnelTileStateMapper.shouldStart(TunnelState.Blocked("Home")))
+    }
+
+    @Test
     fun `isRunning is true for up and transitional states only`() {
         assertTrue(TunnelTileStateMapper.isRunning(TunnelState.Started("Home")))
         assertTrue(TunnelTileStateMapper.isRunning(TunnelState.Starting("Home")))
