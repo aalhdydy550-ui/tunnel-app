@@ -79,8 +79,11 @@ class InjectorSshClient {
                 port = InjectorConstants.INJECTOR_SOCKS_PORT,
                 channelFactory = InjectorSocksServer.ChannelFactory { targetHost, targetPort ->
                     val channel = newSession.openChannel("direct-tcpip") as ChannelDirectTCPIP
-                    channel.host = targetHost
-                    channel.port = targetPort
+                    // NOTE: host/port are package-private fields in
+                    // mwiede JSch — direct assignment does not compile
+                    // from Kotlin. Use the public setters instead.
+                    channel.setHost(targetHost)
+                    channel.setPort(targetPort)
                     channel.connect()
                     object : InjectorSocksServer.Channel {
                         override val input: InputStream = channel.inputStream
