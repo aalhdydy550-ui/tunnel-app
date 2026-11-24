@@ -1,6 +1,5 @@
 package dev.aalhdydy550.tunnel.feature.connection
 
-import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -9,7 +8,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.net.InetAddress
-import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -27,20 +25,17 @@ class HeartbeatMonitorTest {
 
     @Test
     fun `probeOnce returns true for 204`() = runTest {
-        val server = HttpServer.create(InetSocketAddress("::1", 0), 0)
-        server.createContext("/generate_204") { exchange ->
-            exchange.sendResponseHeaders(204, -1)
-            exchange.close()
-        }
+        val server = FakeHttpServer()
+        server.route("/generate_204", 204)
         server.start()
         try {
             val monitor = HeartbeatMonitor(
                 scope = this,
-                url = "http://[::1]:${server.address.port}/generate_204",
+                url = "http://[::1]:${server.port}/generate_204",
             )
             assertTrue(monitor.probeOnce())
         } finally {
-            server.stop(0)
+            server.stop()
         }
     }
 
