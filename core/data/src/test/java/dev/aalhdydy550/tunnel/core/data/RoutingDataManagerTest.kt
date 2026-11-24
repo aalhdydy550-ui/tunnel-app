@@ -1,6 +1,5 @@
 package dev.aalhdydy550.tunnel.core.data
 
-import com.sun.net.httpserver.HttpServer
 import dev.aalhdydy550.tunnel.core.data.routing.RoutingDataCatalog
 import dev.aalhdydy550.tunnel.core.data.routing.RoutingDataManager
 import dev.aalhdydy550.tunnel.core.data.routing.RoutingDataState
@@ -9,7 +8,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
-import java.net.InetSocketAddress
 
 /**
  * Real unit tests for [RoutingDataManager] against a local HTTP server:
@@ -25,17 +23,14 @@ class RoutingDataManagerTest {
     @Test
     fun `download from a local server stores the file and reports ready`() = runTest {
         val payload = byteArrayOf(0x01, 0x02, 0x03, 0x04)
-        val server = HttpServer.create(InetSocketAddress("::1", 0), 0)
-        server.createContext("/ads.srs") { exchange ->
-            exchange.sendResponseHeaders(200, payload.size.toLong())
-            exchange.responseBody.use { it.write(payload) }
-        }
+        val server = FakeHttpServer()
+        server.route("/ads.srs", 200, payload)
         server.start()
         val dir = java.nio.file.Files.createTempDirectory("rule-sets").toFile()
         try {
             val manager = RoutingDataManager(
                 dir = dir,
-                adsUrl = "http://[::1]:${server.address.port}/ads.srs",
+                adsUrl = "http://[::1]:${server.port}/ads.srs",
             )
             assertEquals(RoutingDataState.NOT_DOWNLOADED, manager.status().state)
             val after = manager.ensureDownloaded()
@@ -44,7 +39,7 @@ class RoutingDataManagerTest {
             assertTrue(file.exists())
             assertEquals(payload.size.toLong(), file.length())
         } finally {
-            server.stop(0)
+            server.stop()
             dir.deleteRecursively()
         }
     }

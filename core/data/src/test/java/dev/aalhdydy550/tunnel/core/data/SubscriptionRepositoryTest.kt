@@ -1,6 +1,5 @@
 package dev.aalhdydy550.tunnel.core.data
 
-import com.sun.net.httpserver.HttpServer
 import dev.aalhdydy550.tunnel.core.data.model.Profile
 import dev.aalhdydy550.tunnel.core.data.model.ProfileType
 import dev.aalhdydy550.tunnel.core.data.repository.SubscriptionRepository
@@ -17,7 +16,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.net.InetSocketAddress
 import java.util.concurrent.TimeUnit
 
 /**
@@ -131,14 +129,9 @@ class SubscriptionRepositoryTest {
         .readTimeout(5, TimeUnit.SECONDS)
         .build()
 
-    private fun serverWith(body: String, code: Int = 200): HttpServer {
-        val server = HttpServer.create(InetSocketAddress("::1", 0), 0)
-        server.createContext("/") { exchange ->
-            val bytes = body.toByteArray(Charsets.UTF_8)
-            exchange.sendResponseHeaders(code, bytes.size.toLong())
-            exchange.responseBody.use { it.write(bytes) }
-            exchange.close()
-        }
+    private fun serverWith(body: String, code: Int = 200): FakeHttpServer {
+        val server = FakeHttpServer()
+        server.route("/", code, body)
         server.start()
         return server
     }
@@ -171,7 +164,7 @@ class SubscriptionRepositoryTest {
         val body = "vless://11111111-1111-1111-1111-111111111111@203.0.113.10:443#New"
         val server = serverWith(body)
         try {
-            val port = server.address.port
+            val port = server.port
             subscriptionDao.update(
                 subscriptionDao.getById(subId)!!.copy(
                     url = "http://[::1]:$port/sub",
@@ -192,7 +185,7 @@ class SubscriptionRepositoryTest {
             assertEquals("", updated.lastError)
             assertTrue(updated.lastFetchedAt > 0)
         } finally {
-            server.stop(0)
+            server.stop()
         }
     }
 
@@ -212,7 +205,7 @@ class SubscriptionRepositoryTest {
         )
         val server = serverWith("nope", 500)
         try {
-            val port = server.address.port
+            val port = server.port
             subscriptionDao.update(
                 subscriptionDao.getById(subId)!!.copy(
                     url = "http://[::1]:$port/sub",
@@ -226,7 +219,7 @@ class SubscriptionRepositoryTest {
             assertEquals("Old sub server", profileDao.getAll().first()[0].name)
             assertTrue(subscriptionDao.getById(subId)!!.lastError.isNotBlank())
         } finally {
-            server.stop(0)
+            server.stop()
         }
     }
 

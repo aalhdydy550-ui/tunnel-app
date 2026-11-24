@@ -1,13 +1,11 @@
 package dev.aalhdydy550.tunnel.core.data
 
-import com.sun.net.httpserver.HttpServer
 import dev.aalhdydy550.tunnel.core.data.net.EndpointProbe
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
-import java.net.InetSocketAddress
 import java.util.concurrent.TimeUnit
 
 /**
@@ -27,23 +25,13 @@ class EndpointProbeTest {
 
     @Test
     fun `selectFastest picks the fastest 204 endpoint`() = runTest {
-        val server = HttpServer.create(InetSocketAddress("::1", 0), 0)
-        server.createContext("/fast") { exchange ->
-            exchange.sendResponseHeaders(204, -1)
-            exchange.close()
-        }
-        server.createContext("/slow") { exchange ->
-            Thread.sleep(300)
-            exchange.sendResponseHeaders(204, -1)
-            exchange.close()
-        }
-        server.createContext("/bad") { exchange ->
-            exchange.sendResponseHeaders(500, -1)
-            exchange.close()
-        }
+        val server = FakeHttpServer()
+        server.route("/fast", 204)
+        server.route("/slow", 204, delayMs = 300)
+        server.route("/bad", 500)
         server.start()
         try {
-            val port = server.address.port
+            val port = server.port
             val endpoints = listOf(
                 EndpointProbe.ProbeEndpoint("slow", "http://[::1]:$port/slow"),
                 EndpointProbe.ProbeEndpoint("bad", "http://[::1]:$port/bad"),
@@ -52,7 +40,7 @@ class EndpointProbeTest {
             val fastest = EndpointProbe.selectFastest(client(), endpoints)
             assertEquals("fast", fastest?.name)
         } finally {
-            server.stop(0)
+            server.stop()
         }
     }
 

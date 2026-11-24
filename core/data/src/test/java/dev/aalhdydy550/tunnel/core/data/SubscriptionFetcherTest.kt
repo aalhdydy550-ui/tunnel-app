@@ -1,6 +1,5 @@
 package dev.aalhdydy550.tunnel.core.data
 
-import com.sun.net.httpserver.HttpServer
 import dev.aalhdydy550.tunnel.core.data.backup.exportProfilesToJson
 import dev.aalhdydy550.tunnel.core.data.backup.importProfilesFromJson
 import dev.aalhdydy550.tunnel.core.data.profile.SubscriptionFetcher
@@ -10,7 +9,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
-import java.net.InetSocketAddress
 import java.util.Base64
 import java.util.concurrent.TimeUnit
 
@@ -33,14 +31,9 @@ class SubscriptionFetcherTest {
         .readTimeout(5, TimeUnit.SECONDS)
         .build()
 
-    private fun serverWith(body: String, code: Int = 200): HttpServer {
-        val server = HttpServer.create(InetSocketAddress("::1", 0), 0)
-        server.createContext("/") { exchange ->
-            val bytes = body.toByteArray(Charsets.UTF_8)
-            exchange.sendResponseHeaders(code, bytes.size.toLong())
-            exchange.responseBody.use { it.write(bytes) }
-            exchange.close()
-        }
+    private fun serverWith(body: String, code: Int = 200): FakeHttpServer {
+        val server = FakeHttpServer()
+        server.route("/", code, body)
         server.start()
         return server
     }
@@ -78,7 +71,7 @@ class SubscriptionFetcherTest {
     fun `fetchAndParse reads a plain list from the server`() = runTest {
         val server = serverWith("$vlessLink\n$trojanLink")
         try {
-            val port = server.address.port
+            val port = server.port
             val result = SubscriptionFetcher.fetchAndParse(
                 client(),
                 "http://[::1]:$port/sub",
@@ -88,7 +81,7 @@ class SubscriptionFetcherTest {
             assertEquals("Germany", result.profiles[0].name)
             assertEquals("203.0.113.10", result.profiles[0].server)
         } finally {
-            server.stop(0)
+            server.stop()
         }
     }
 
@@ -99,7 +92,7 @@ class SubscriptionFetcherTest {
             .encodeToString(plain.toByteArray(Charsets.UTF_8))
         val server = serverWith(encoded)
         try {
-            val port = server.address.port
+            val port = server.port
             val result = SubscriptionFetcher.fetchAndParse(
                 client(),
                 "http://[::1]:$port/sub",
@@ -108,7 +101,7 @@ class SubscriptionFetcherTest {
             assertEquals(2, result.profiles.size)
             assertEquals("France", result.profiles[1].name)
         } finally {
-            server.stop(0)
+            server.stop()
         }
     }
 
@@ -116,7 +109,7 @@ class SubscriptionFetcherTest {
     fun `fetchAndParse throws on HTTP error`() = runTest {
         val server = serverWith("nope", 404)
         try {
-            val port = server.address.port
+            val port = server.port
             try {
                 SubscriptionFetcher.fetchAndParse(client(), "http://[::1]:$port/sub")
                 fail("expected an exception for HTTP 404")
@@ -124,7 +117,7 @@ class SubscriptionFetcherTest {
                 assertTrue(e.message!!.contains("404"))
             }
         } finally {
-            server.stop(0)
+            server.stop()
         }
     }
 
@@ -160,7 +153,7 @@ class SubscriptionFetcherTest {
     fun `fetch parse export import round-trips`() = runTest {
         val server = serverWith("$vlessLink\n$trojanLink")
         try {
-            val port = server.address.port
+            val port = server.port
             val fetched = SubscriptionFetcher.fetchAndParse(
                 client(),
                 "http://[::1]:$port/sub",
@@ -175,7 +168,7 @@ class SubscriptionFetcherTest {
             assertEquals("France", reimported.profiles[1].name)
             assertEquals("203.0.113.20", reimported.profiles[1].server)
         } finally {
-            server.stop(0)
+            server.stop()
         }
     }
 }
