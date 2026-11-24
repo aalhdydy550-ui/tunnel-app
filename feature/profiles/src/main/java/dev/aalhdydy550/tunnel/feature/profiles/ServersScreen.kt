@@ -45,7 +45,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import dev.aalhdydy550.tunnel.core.data.model.ProfileType
 import dev.aalhdydy550.tunnel.core.data.net.LatencyTester
+import dev.aalhdydy550.tunnel.core.data.profile.OvpnConfParser
 import dev.aalhdydy550.tunnel.core.data.routing.RoutingDataState
 import dev.aalhdydy550.tunnel.core.ui.R as CoreUiR
 import dev.aalhdydy550.tunnel.core.ui.components.ProfileRow
@@ -107,6 +109,15 @@ fun ServersScreen(
         connectionViewModel.vpnPermissionRequest.collect {
             VpnService.prepare(context)?.let { vpnPermissionLauncher.launch(it) }
         }
+    }
+
+    // OpenVPN (external app) results: app not installed, invalid
+    // config, launcher failure — shown as a dismissible notice
+    // under the connection panel (a successful start shows
+    // nothing: the external app shows its own notification).
+    var openVpnNotice by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        connectionViewModel.openVpnMessage.collect { openVpnNotice = it }
     }
 
     // Battery exemption: after the system screen, refresh the status.
@@ -177,6 +188,10 @@ fun ServersScreen(
                 selectedProfile = selectedProfile,
                 selectingFastest = selectingFastest,
                 onConnect = {
+                    // A new attempt clears a stale OpenVPN notice
+                    // (e.g. "not installed" shown before the user
+                    // installed the external app).
+                    openVpnNotice = null
                     // Pressing connect first picks the fastest server,
                     // then connects — unless the user just picked one
                     // by hand, in which case that server is used.
@@ -198,6 +213,42 @@ fun ServersScreen(
                     if (showServers) profilesViewModel.testLatency()
                 },
             )
+        }
+        // OpenVPN notice (see above): shown only when the last
+        // OpenVPN attempt reported something the user must see.
+        // A message carrying a link (the Play Store install link)
+        // gets an install button that opens it.
+        val openVpnMessage = openVpnNotice
+        if (openVpnMessage != null) {
+            item {
+                val playUrl = Regex("https://\\S+").find(openVpnMessage)?.value
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                    ),
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = openVpnMessage,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (playUrl != null) {
+                                Button(onClick = {
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(playUrl)),
+                                    )
+                                }) { Text("تثبيت من متجر Play") }
+                            }
+                            OutlinedButton(onClick = { openVpnNotice = null }) {
+                                Text("إغلاق")
+                            }
+                        }
+                    }
+                }
+            }
         }
         // Free internet (SNI + SSH injector): entry point from the
         // servers screen. Shown only when the caller wires the
@@ -267,7 +318,11 @@ fun ServersScreen(
                 }
                 ProfileRow(
                     name = profile.name,
-                    typeLabel = profile.type.name,
+                    typeLabel = if (profile.type == ProfileType.OPENVPN) {
+                        "OpenVPN (${OvpnConfParser.protocolLabel(profile.outboundJson)})"
+                    } else {
+                        profile.type.name
+                    },
                     address = "${profile.server}:${profile.port}$latencySuffix",
                     selected = profile.id == selectedId,
                     onClick = {

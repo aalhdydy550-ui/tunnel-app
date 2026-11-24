@@ -29,12 +29,12 @@ import dev.aalhdydy550.tunnel.core.data.profile.SubscriptionFetcher
 
 /**
  * Import screen: paste links (one per line), paste from the clipboard,
- * or pick a file (link list, WireGuard `.conf`, sing-box JSON, or a
- * JSON backup from this app). A locked export (`.aytun` file,
- * `aytun://v1` text, or QR) is unlocked with its password in the
- * "locked import" card below the file picker. Subscriptions —
- * user-provided URLs that serve a link list — are added below and
- * refresh daily.
+ * or pick a file (link list, WireGuard `.conf`, OpenVPN `.ovpn`,
+ * sing-box JSON, or a JSON backup from this app). A locked export
+ * (`.aytun` file, `aytun://v1` text, or QR) is unlocked with its
+ * password in the "locked import" card below the file picker.
+ * Subscriptions — user-provided URLs that serve a link list — are
+ * added below and refresh daily.
  *
  * Supported links: vless / vmess / trojan / ss / hysteria2 / tuic /
  * ssh. ZIVPN links are recognized and rejected with a Phase 2 note.
@@ -102,7 +102,7 @@ fun ImportScreen(
         OutlinedButton(
             onClick = { filePicker.launch("*/*") },
             modifier = Modifier.fillMaxWidth(),
-        ) { Text("اختيار ملف (روابط / WireGuard .conf / JSON)") }
+        ) { Text("اختيار ملف (روابط / WireGuard .conf / OpenVPN .ovpn / JSON)") }
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier.padding(16.dp),
@@ -266,7 +266,7 @@ fun ImportScreen(
         }
         Text(
             text = "المدعوم: vless، vmess، trojan، shadowsocks، hysteria2، " +
-                "tuic، ssh، وملف WireGuard .conf، ورابط اشتراك، " +
+                "tuic، ssh، وملف WireGuard .conf، وملف OpenVPN .ovpn، ورابط اشتراك، " +
                 "والاستيراد المقفول .aytun (نص aytun://v1 أو ملف أو QR). روابط " +
                 "ZIVPN ستأتي في المرحلة 2. مفاتيح SSH الخاصة تُستورد عبر " +
                 "ملف JSON لـsing-box وليس عبر رابط.",
