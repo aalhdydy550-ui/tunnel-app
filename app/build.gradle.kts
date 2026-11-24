@@ -71,6 +71,7 @@ kotlin {
 dependencies {
     implementation(project(":core:ui"))
     implementation(project(":core:data"))
+    implementation(project(":core:database"))
     implementation(project(":feature:profiles"))
     implementation(project(":feature:connection"))
 
