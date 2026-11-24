@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
+import android.net.IpPrefix
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.ProxyInfo
@@ -46,6 +47,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.net.InetAddress
 import java.net.NetworkInterface as JavaNetworkInterface
 
 /**
@@ -554,12 +556,12 @@ class TunnelVpnService : VpnService() {
                     val inet4Excludes = options.inet4RouteExcludeAddress
                     while (inet4Excludes.hasNext()) {
                         val route = inet4Excludes.next()
-                        builder.excludeRoute(route.address(), route.prefix())
+                        builder.excludeRoute(IpPrefix(InetAddress.getByName(route.address()), route.prefix()))
                     }
                     val inet6Excludes = options.inet6RouteExcludeAddress
                     while (inet6Excludes.hasNext()) {
                         val route = inet6Excludes.next()
-                        builder.excludeRoute(route.address(), route.prefix())
+                        builder.excludeRoute(IpPrefix(InetAddress.getByName(route.address()), route.prefix()))
                     }
                 } else {
                     // Before Android 13 the Builder has no excludeRoute;
