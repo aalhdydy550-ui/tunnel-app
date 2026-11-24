@@ -4,6 +4,7 @@ import dev.aalhdydy550.tunnel.core.data.backup.exportProfilesToJson
 import dev.aalhdydy550.tunnel.core.data.backup.importProfilesFromJson
 import dev.aalhdydy550.tunnel.core.data.model.Profile
 import dev.aalhdydy550.tunnel.core.data.model.ProfileType
+import dev.aalhdydy550.tunnel.core.data.model.isSameServer
 import dev.aalhdydy550.tunnel.core.data.profile.ProfileLinkParser
 import dev.aalhdydy550.tunnel.core.data.profile.WireGuardConfParser
 import dev.aalhdydy550.tunnel.core.database.ProfileDao
@@ -33,6 +34,33 @@ class ProfileRepository @Inject constructor(
 
     suspend fun add(profile: Profile): Long =
         dao.insert(profile.toEntity())
+
+    /**
+     * Adds [profile], or updates the stored profile with the same
+     * server identity ([isSameServer]) instead of creating a
+     * duplicate: importing the same `.conf` / link twice must never
+     * produce two identical rows in the server list. The stored row
+     * keeps its id, its position ([Profile.createdAt]) and its
+     * subscription link; the fresh import's name and config win, and
+     * a blank country code keeps the stored one (so a re-import
+     * without a country never wipes the flag). Returns the stored
+     * row's id.
+     */
+    suspend fun addOrReplace(profile: Profile): Long {
+        val existing = profiles.first().firstOrNull { isSameServer(it, profile) }
+        return if (existing == null) {
+            dao.insert(profile.toEntity())
+        } else {
+            val merged = profile.copy(
+                id = existing.id,
+                createdAt = existing.createdAt,
+                subscriptionId = existing.subscriptionId,
+                countryCode = profile.countryCode.ifBlank { existing.countryCode },
+            )
+            dao.update(merged.toEntity())
+            existing.id
+        }
+    }
 
     suspend fun update(profile: Profile) {
         dao.update(profile.toEntity())
