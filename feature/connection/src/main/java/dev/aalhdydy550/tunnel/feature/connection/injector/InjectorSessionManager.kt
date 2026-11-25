@@ -41,6 +41,7 @@ object InjectorSessionManager {
         val proxyHost: String = "",
         val proxyPort: Int = 0,
         val payloadText: String = "",
+        val tcpNoDelay: Boolean = false,
     )
 
     private val mutex = Mutex()
@@ -96,6 +97,7 @@ object InjectorSessionManager {
             password = params.password,
             sniHost = params.sniHost,
             socketFactory = factory,
+            tcpNoDelay = params.tcpNoDelay,
         ).onSuccess {
             client = newClient
             _currentNetworkId = params.networkId

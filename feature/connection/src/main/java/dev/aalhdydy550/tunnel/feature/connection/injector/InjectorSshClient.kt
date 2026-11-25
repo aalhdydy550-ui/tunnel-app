@@ -65,6 +65,7 @@ class InjectorSshClient {
         password: String,
         sniHost: String,
         socketFactory: SocketFactory? = null,
+        tcpNoDelay: Boolean = false,
     ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             require(validateSniHost(sniHost)) { "Invalid SNI host: $sniHost" }
@@ -78,7 +79,7 @@ class InjectorSshClient {
             // v1 trade-off, see the class doc: no host-key verification
             // for the user's own server.
             newSession.setConfig("StrictHostKeyChecking", "no")
-            newSession.setSocketFactory(socketFactory ?: TlsSniSocketFactory(sniHost))
+            newSession.setSocketFactory(socketFactory ?: TlsSniSocketFactory(sniHost, tcpNoDelay = tcpNoDelay))
             newSession.connect(InjectorConstants.SSH_CONNECT_TIMEOUT_MS)
             // SOCKS5 listener (the ssh -D equivalent): must start
             // after connect(), and binds 127.0.0.1:10810 — throws if

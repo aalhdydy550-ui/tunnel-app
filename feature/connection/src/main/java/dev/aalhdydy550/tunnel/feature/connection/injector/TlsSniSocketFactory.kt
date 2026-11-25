@@ -1,6 +1,7 @@
 package dev.aalhdydy550.tunnel.feature.connection.injector
 
 import com.jcraft.jsch.SocketFactory
+import dev.aalhdydy550.tunnel.feature.connection.TcpNoDelay
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -70,6 +71,7 @@ fun validateSniHost(host: String): Boolean {
 class TlsSniSocketFactory(
     private val sniHost: String,
     private val tlsTimeoutMs: Int = InjectorConstants.TLS_CONNECT_TIMEOUT_MS,
+    private val tcpNoDelay: Boolean = false,
 ) : SocketFactory {
 
     init {
@@ -95,7 +97,7 @@ class TlsSniSocketFactory(
         val socket = sslContext.socketFactory.createSocket() as SSLSocket
         try {
             socket.soTimeout = tlsTimeoutMs
-            socket.tcpNoDelay = true
+            TcpNoDelay.apply(socket, tcpNoDelay)
             socket.connect(InetSocketAddress(host, port), tlsTimeoutMs)
             socket.sslParameters = SSLParameters().apply {
                 serverNames = listOf(SNIHostName(sniHost))
