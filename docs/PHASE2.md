@@ -81,6 +81,8 @@ new capability.
 - `135.125.205.76` — UDP 9501–13000
 - `51.161.9.44` — UDP 9501–13000
 
+Spike 2026-11-25: (ج) — لا مصدر موثوق؛ ZIVPN ليس Hysteria2؛ التمويه اسمه `zivpn`؛ يبقى غير منفذ.
+
 ## 2. Free-internet mechanisms (Phase 2, after ZIVPN)
 
 User goal, clarified 2026-11-23: the app should eventually be able to
