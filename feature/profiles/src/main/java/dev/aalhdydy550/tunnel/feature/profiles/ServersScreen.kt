@@ -58,6 +58,7 @@ import dev.aalhdydy550.tunnel.core.ui.R as CoreUiR
 import dev.aalhdydy550.tunnel.core.ui.components.ProfileRow
 import dev.aalhdydy550.tunnel.feature.connection.ConnectionPanel
 import dev.aalhdydy550.tunnel.feature.connection.ConnectionViewModel
+import dev.aalhdydy550.tunnel.feature.connection.PostConnectionCheckViewModel
 import dev.aalhdydy550.tunnel.feature.connection.TunnelState
 import dev.aalhdydy550.tunnel.feature.connection.settings.SettingsViewModel
 import kotlinx.coroutines.launch
@@ -85,6 +86,9 @@ fun ServersScreen(
 
     val state by connectionViewModel.state.collectAsState()
     val speed by connectionViewModel.speed.collectAsState()
+    val postCheckViewModel = hiltViewModel<PostConnectionCheckViewModel>()
+    val checkResult by postCheckViewModel.result.collectAsState()
+    val checkingPostConnection by postCheckViewModel.checking.collectAsState()
     val selectedProfile by connectionViewModel.selectedProfile.collectAsState()
 
     // The server list is hidden until the user taps the server card
@@ -242,6 +246,9 @@ fun ServersScreen(
                     showServers = !showServers
                     if (showServers) profilesViewModel.testLatency()
                 },
+                checkResult = checkResult,
+                checkingPostConnection = checkingPostConnection,
+                onCheckPostConnection = { postCheckViewModel.checkNow() },
             )
         }
         // Group failover gave up (item 6b): every candidate failed —

@@ -47,9 +47,12 @@ import kotlinx.coroutines.withContext
  * validated here with [QrCodeDecoder.isImportableQrText] first, so a
  * QR holding a website or plain text never reaches the ViewModel.
  *
- * Not yet wired into [ImportScreen]: that file is owned by the
- * removal coordinator in this batch — see the integration steps in
- * the batch summary. Wiring is two buttons + one callback.
+ * Wired into [ImportScreen] inside the «استيراد مقفول» card: the
+ * callback routes the scanned text — a locked export goes to
+ * `ImportViewModel.importText`, which stores it in `pendingLockedText`
+ * so it opens with the password; a subscription URL goes to
+ * `ImportViewModel.importSubscription`; anything else goes to
+ * `ImportViewModel.importText` with the country code.
  */
 @Composable
 fun QrImportSection(
