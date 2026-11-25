@@ -62,6 +62,8 @@ import dev.aalhdydy550.tunnel.feature.connection.injector.FreeInternetScreen
 import dev.aalhdydy550.tunnel.feature.connection.injector.FreeInternetViewModel
 import dev.aalhdydy550.tunnel.feature.connection.settings.SettingsScreen
 import dev.aalhdydy550.tunnel.feature.connection.settings.SettingsViewModel
+import dev.aalhdydy550.tunnel.feature.profiles.GroupsScreen
+import dev.aalhdydy550.tunnel.feature.profiles.GroupsViewModel
 import dev.aalhdydy550.tunnel.feature.profiles.ImportScreen
 import dev.aalhdydy550.tunnel.feature.profiles.ImportViewModel
 import dev.aalhdydy550.tunnel.feature.profiles.ProfilesViewModel
@@ -144,6 +146,14 @@ class MainActivity : ComponentActivity() {
                                 },
                             )
                             NavigationDrawerItem(
+                                label = { Text("المجموعات") },
+                                selected = screen == Screen.GROUPS,
+                                onClick = {
+                                    screen = Screen.GROUPS
+                                    scope.launch { drawerState.close() }
+                                },
+                            )
+                            NavigationDrawerItem(
                                 label = { Text("نت مجاني") },
                                 selected = screen == Screen.FREE_INTERNET,
                                 onClick = {
@@ -193,6 +203,7 @@ class MainActivity : ComponentActivity() {
                                 ),
                                 navigationIcon = {
                                     if (screen == Screen.IMPORT ||
+                                        screen == Screen.GROUPS ||
                                         screen == Screen.FREE_INTERNET ||
                                         screen == Screen.SETTINGS
                                     ) {
@@ -267,6 +278,9 @@ class MainActivity : ComponentActivity() {
                                 Screen.IMPORT -> ImportScreen(
                                     viewModel = hiltViewModel<ImportViewModel>(),
                                 )
+                                Screen.GROUPS -> GroupsScreen(
+                                    viewModel = hiltViewModel<GroupsViewModel>(),
+                                )
                                 Screen.FREE_INTERNET -> FreeInternetScreen(
                                     viewModel = hiltViewModel<FreeInternetViewModel>(),
                                 )
@@ -316,5 +330,5 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private enum class Screen { SERVERS, IMPORT, FREE_INTERNET, SETTINGS }
+    private enum class Screen { SERVERS, IMPORT, GROUPS, FREE_INTERNET, SETTINGS }
 }
