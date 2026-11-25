@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -28,6 +30,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -46,6 +49,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import dev.aalhdydy550.tunnel.core.data.model.ProfileType
+import dev.aalhdydy550.tunnel.core.data.model.SpeedTestResult
 import dev.aalhdydy550.tunnel.core.data.net.LatencyTester
 import dev.aalhdydy550.tunnel.core.data.repository.ProxyMode
 import dev.aalhdydy550.tunnel.core.data.profile.OvpnConfParser
@@ -54,6 +58,7 @@ import dev.aalhdydy550.tunnel.core.ui.R as CoreUiR
 import dev.aalhdydy550.tunnel.core.ui.components.ProfileRow
 import dev.aalhdydy550.tunnel.feature.connection.ConnectionPanel
 import dev.aalhdydy550.tunnel.feature.connection.ConnectionViewModel
+import dev.aalhdydy550.tunnel.feature.connection.TunnelState
 import dev.aalhdydy550.tunnel.feature.connection.settings.SettingsViewModel
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -99,6 +104,17 @@ fun ServersScreen(
     val routingDecision by profilesViewModel.routingDecision.collectAsState()
     val batteryExempt by profilesViewModel.batteryExempt.collectAsState()
 
+    // Groups (item 6b): chips above the server list + the active group.
+    val groups by profilesViewModel.groups.collectAsState()
+    val activeGroupId by profilesViewModel.activeGroupId.collectAsState()
+    // Last measured speed per server (item 6a), shown in the row.
+    val speedResults by profilesViewModel.speedResults.collectAsState()
+    val speedTestRunning by profilesViewModel.speedTestRunning.collectAsState()
+    val speedTestProgress by profilesViewModel.speedTestProgress.collectAsState()
+    val speedTestError by profilesViewModel.speedTestError.collectAsState()
+    // Failover gave up: every candidate in the group failed.
+    val failoverNotice by connectionViewModel.failoverNotice.collectAsState()
+
     // VPN permission: the system screen, then start the tunnel.
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -121,6 +137,11 @@ fun ServersScreen(
     LaunchedEffect(Unit) {
         connectionViewModel.openVpnMessage.collect { openVpnNotice = it }
     }
+
+    // Random connect (item 6b): "no servers" is a local notice here.
+    var randomNotice by remember { mutableStateOf<String?>(null) }
+    // Speed test (item 6a): confirm the data cost before starting.
+    var showSpeedTestConfirm by remember { mutableStateOf(false) }
 
     // Battery exemption: after the system screen, refresh the status.
     val batteryLauncher = rememberLauncherForActivityResult(
@@ -223,6 +244,91 @@ fun ServersScreen(
                 },
             )
         }
+        // Group failover gave up (item 6b): every candidate failed —
+        // a dismissible notice, same pattern as the OpenVPN one.
+        val failoverMessage = failoverNotice
+        if (failoverMessage != null) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                    ),
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = failoverMessage,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = { connectionViewModel.clearFailoverNotice() },
+                        ) { Text("إغلاق") }
+                    }
+                }
+            }
+        }
+        // Random connect (item 6b): picks from the active group when
+        // one is set, otherwise from all servers — preferring
+        // recently successful ones, never blind. Disabled while a
+        // tunnel is up: it is a connect action, not a switch.
+        val randomConnectEnabled = profiles.isNotEmpty() &&
+            (state is TunnelState.Stopped || state is TunnelState.Error)
+        item {
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        val target = profilesViewModel.pickRandom()
+                        if (target == null) {
+                            randomNotice = "لا توجد خوادم للاتصال العشوائي — " +
+                                "استورد خوادم أولًا."
+                        } else {
+                            randomNotice = null
+                            openVpnNotice = null
+                            profilesViewModel.select(target.id)
+                            connectionViewModel.connect(target)
+                        }
+                    }
+                },
+                enabled = randomConnectEnabled,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("اتصال عشوائي") }
+        }
+        val randomConnectMessage = randomNotice
+        if (randomConnectMessage != null) {
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = randomConnectMessage,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedButton(onClick = { randomNotice = null }) {
+                            Text("إغلاق")
+                        }
+                    }
+                }
+            }
+        }
+        // Speed test (item 6a): only on the connected server — the
+        // button never appears while disconnected, and the test never
+        // starts without a tunnel (see ProfilesViewModel.runSpeedTest).
+        val connectedProfile = selectedProfile
+        if (state is TunnelState.Started && connectedProfile != null) {
+            item {
+                SpeedTestCard(
+                    profileName = connectedProfile.name,
+                    lastResult = speedResults[connectedProfile.id],
+                    running = speedTestRunning,
+                    progress = speedTestProgress,
+                    error = speedTestError,
+                    onTestClick = { showSpeedTestConfirm = true },
+                    onCancel = { profilesViewModel.cancelSpeedTest() },
+                    onDismissError = { profilesViewModel.clearSpeedTestError() },
+                )
+            }
+        }
         // OpenVPN notice (see above): shown only when the last
         // OpenVPN attempt reported something the user must see.
         // A message carrying a link (the Play Store install link)
@@ -313,6 +419,35 @@ fun ServersScreen(
         // server card (or the latency test) to show it, tap a server
         // to pick it — the list then hides again.
         if (showServers) {
+            // Group chips (item 6b): pick the active group — the one
+            // the connect button and the random-connect button draw
+            // from. "الكل" clears the choice (plain fastest pick).
+            if (groups.isNotEmpty()) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "المجموعات",
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            GroupChip(
+                                label = "الكل",
+                                selected = activeGroupId == null,
+                                onClick = { profilesViewModel.setActiveGroup(null) },
+                            )
+                            for (group in groups) {
+                                GroupChip(
+                                    label = group.name,
+                                    selected = group.id == activeGroupId,
+                                    onClick = {
+                                        profilesViewModel.setActiveGroup(group.id)
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
             items(profiles, key = { it.id }) { profile ->
                 val ms = latency[profile.id]
                 // A profile that was never probed (UDP-only transport)
@@ -325,6 +460,12 @@ fun ServersScreen(
                     latency.containsKey(profile.id) -> " — لا يرد"
                     else -> ""
                 }
+                // Last measured speed (item 6a) in the same line:
+                // flag + latency + last speed, Hamo-like, without
+                // copying its design. No result yet → no suffix.
+                val speedSuffix = speedResults[profile.id]?.let {
+                    " — ${formatMbps(it.downloadMbps)}"
+                } ?: ""
                 ProfileRow(
                     name = profile.name,
                     typeLabel = if (profile.type == ProfileType.OPENVPN) {
@@ -332,7 +473,7 @@ fun ServersScreen(
                     } else {
                         profile.type.name
                     },
-                    address = "${profile.server}:${profile.port}$latencySuffix",
+                    address = "${profile.server}:${profile.port}$latencySuffix$speedSuffix",
                     selected = profile.id == selectedId,
                     onClick = {
                         profilesViewModel.selectManually(profile.id)
@@ -400,6 +541,42 @@ fun ServersScreen(
                 context.startActivity(
                     Intent.createChooser(intent, "مشاركة التصدير المقفول"),
                 )
+            },
+        )
+    }
+
+    // Speed test confirmation (item 6a): the test eats real data —
+    // at least ~5MB, up to ~25MB when the connection is fast, within
+    // a 10s cap (SpeedTest.INITIAL_BYTES / MAX_BYTES / TIMEOUT_MS).
+    // Nothing starts without this tap.
+    if (showSpeedTestConfirm) {
+        val profile = selectedProfile
+        AlertDialog(
+            onDismissRequest = { showSpeedTestConfirm = false },
+            title = { Text("اختبار السرعة") },
+            text = {
+                Text(
+                    "سيستهلك الاختبار نحو 5 ميجا بايت على الأقل من " +
+                        "باقتك، وقد يصل إلى 25 ميجا بايت إن كان الاتصال " +
+                        "سريعًا (بحد أقصى 10 ثوانٍ). يقيس سرعة التنزيل " +
+                        "عبر النفق المتصل حاليًا.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showSpeedTestConfirm = false
+                    if (profile != null) {
+                        profilesViewModel.runSpeedTest(
+                            profileId = profile.id,
+                            isTunnelConnected = state is TunnelState.Started,
+                        )
+                    }
+                }) { Text("ابدأ الاختبار") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSpeedTestConfirm = false }) {
+                    Text("إلغاء")
+                }
             },
         )
     }
@@ -609,6 +786,108 @@ private fun SettingsSection(
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("المستودع على GitHub (الدعم والإبلاغ عن مشاكل)") }
             }
+        }
+    }
+}
+
+@Composable
+private fun GroupChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    if (selected) {
+        Button(onClick = onClick) { Text(label) }
+    } else {
+        OutlinedButton(onClick = onClick) { Text(label) }
+    }
+}
+
+/** "12.5 ميجابت/ث" — the single speed format for rows and cards. */
+private fun formatMbps(mbps: Double): String =
+    "%.1f ميجابت/ث".format(Locale.US, mbps)
+
+private fun formatTestDate(testedAt: Long): String =
+    SimpleDateFormat("dd/MM HH:mm", Locale.US).format(Date(testedAt))
+
+/**
+ * Speed test card (item 6a), shown only for the connected server:
+ * last result (if any) + live progress while running + a clear
+ * message on failure (never a fake number). The test itself starts
+ * only from the confirm dialog in [ServersScreen].
+ */
+@Composable
+private fun SpeedTestCard(
+    profileName: String,
+    lastResult: SpeedTestResult?,
+    running: Boolean,
+    progress: SpeedTestProgress?,
+    error: String?,
+    onTestClick: () -> Unit,
+    onCancel: () -> Unit,
+    onDismissError: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "اختبار السرعة",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = "الخادم المتصل: $profileName",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            val last = lastResult
+            if (last != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "آخر نتيجة: ${formatMbps(last.downloadMbps)} — " +
+                        "${formatTestDate(last.testedAt)} " +
+                        "(${"%.1f".format(Locale.US, last.bytesDownloaded / 1_000_000.0)} " +
+                        "ميجا في ${last.durationMs} م.ث)",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            val currentProgress = progress
+            if (running) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = if (currentProgress != null) {
+                        "جارٍ التنزيل… ${formatMbps(currentProgress.mbps)} — " +
+                            "${"%.1f".format(Locale.US, currentProgress.downloadedBytes / 1_000_000.0)} ميجا"
+                    } else {
+                        "جارٍ التنزيل…"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            val errorMessage = error
+            if (errorMessage != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = errorMessage,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(onClick = onDismissError) { Text("إغلاق") }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (running) {
+                    OutlinedButton(onClick = onCancel) { Text("إلغاء الاختبار") }
+                } else {
+                    Button(onClick = onTestClick) { Text("اختبر السرعة") }
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "يقيس سرعة التنزيل عبر النفق المتصل — بضغطتك " +
+                    "فقط، أبدًا تلقائيًا.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
