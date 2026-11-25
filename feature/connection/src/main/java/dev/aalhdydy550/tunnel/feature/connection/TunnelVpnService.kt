@@ -18,7 +18,6 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.Process
-import android.system.Os
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import dev.aalhdydy550.tunnel.core.data.model.Profile
@@ -863,15 +862,17 @@ class TunnelVpnService : VpnService() {
             // engine.stop() closes its copy and destroys the
             // interface — so a detached fd alone cannot keep the TUN
             // alive. We therefore keep our own duplicate
-            // (Os.dup, API 21+, minSdk is 24) as the hold-open
-            // handle and return the original raw fd to libbox.
-            // closeTunFd() closes the duplicate, which destroys the
-            // interface — so every stop still tears the TUN down.
-            // Duplicating is safe even if libbox never closes its
-            // copy: the extra handle is closed by closeTunFd() on
-            // every stop, exactly like the original fd was.
+            // (ParcelFileDescriptor.dup, API 13+, minSdk is 24) as
+            // the hold-open handle and return the original raw fd to
+            // libbox. closeTunFd() closes the duplicate, which
+            // destroys the interface — so every stop still tears the
+            // TUN down. Duplicating is safe even if libbox never
+            // closes its copy: the extra handle is closed by
+            // closeTunFd() on every stop, exactly like the original
+            // fd was. The duplicate must be taken BEFORE detachFd(),
+            // while the ParcelFileDescriptor still owns the fd.
+            tunFd = ParcelFileDescriptor.dup(fd.fileDescriptor)
             val rawFd = fd.detachFd()
-            tunFd = ParcelFileDescriptor.adoptFd(Os.dup(rawFd))
             return rawFd
         }
 
