@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -56,6 +57,11 @@ class UpdateCheckViewModelTest {
             is DownloadBehaviour.Success -> {
                 onProgress(50_000, 100_000)
                 progressSeen += 50_000L to 100_000L
+                // A real download suspends on network I/O between progress
+                // callbacks; without a suspension here the StateFlow collector
+                // never gets to run, so it never observes the intermediate
+                // Downloading states (StateFlow only keeps the latest value).
+                delay(10)
                 onProgress(100_000, 100_000)
                 progressSeen += 100_000L to 100_000L
                 Result.success(b.file)
@@ -230,7 +236,10 @@ class UpdateCheckViewModelTest {
         vm.checkForUpdates()
         advanceUntilIdle()
         vm.downloadUpdate()
-        advanceUntilIdle()
+        // runCurrent, not advanceUntilIdle: advancing time would complete the
+        // 60s Hang delay and the download, so the state would already be
+        // Downloaded instead of the Downloading we need to observe here.
+        runCurrent()
         assertTrue(vm.uiState.value is UpdateCheckUiState.Downloading)
         vm.cancelDownload()
         advanceUntilIdle()
