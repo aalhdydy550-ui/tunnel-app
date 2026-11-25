@@ -17,10 +17,10 @@ import java.net.Socket
  *
  * Today the app opens exactly one such socket: the injector's TLS +
  * SNI socket ([dev.aalhdydy550.tunnel.feature.connection.injector
- * .TlsSniSocketFactory]), which already sets `tcpNoDelay = true`
- * unconditionally. The integration step (see the delivery summary)
- * threads this setting through that factory so the option becomes
- * opt-in as specified — off by default — instead of always on.
+ * .TlsSniSocketFactory]), whose `tcpNoDelay` is now threaded from
+ * the stored setting through `InjectorSessionManager.Params` — off
+ * by default, opt-in as specified (wired in the batch-1 +
+ * update-check integration round, 2026-11-25).
  *
  * [apply] is deliberately explicit: `enabled = false` writes
  * `false` to the socket, so the default path provably leaves the

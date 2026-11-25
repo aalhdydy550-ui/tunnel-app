@@ -20,11 +20,14 @@ import android.os.ParcelFileDescriptor
 import android.os.Process
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import dagger.hilt.android.AndroidEntryPoint
 import dev.aalhdydy550.tunnel.core.data.model.Profile
 import dev.aalhdydy550.tunnel.core.data.model.ProfileType
 import dev.aalhdydy550.tunnel.core.data.net.ReconnectPolicy
 import dev.aalhdydy550.tunnel.core.data.repository.KillSwitchStore
+import dev.aalhdydy550.tunnel.core.data.repository.TcpNoDelayRepository
 import dev.aalhdydy550.tunnel.core.data.repository.createKillSwitchStore
+import dev.aalhdydy550.tunnel.core.data.stats.UsageStatsRepository
 import dev.aalhdydy550.tunnel.feature.connection.injector.InjectorSessionManager
 import dev.aalhdydy550.tunnel.feature.connection.injector.payload.InjectorMode
 import io.nekohasekai.libbox.BridgeOptions
@@ -54,6 +57,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.net.InetAddress
 import java.net.NetworkInterface as JavaNetworkInterface
+import javax.inject.Inject
 
 /**
  * The VPN service: one foreground service, one TUN interface, one
@@ -92,6 +96,7 @@ import java.net.NetworkInterface as JavaNetworkInterface
  * unlike the original's separate V2Ray daemon process + external
  * tun2socks/pdnsd/Hysteria processes.
  */
+@AndroidEntryPoint
 class TunnelVpnService : VpnService() {
 
     companion object {
@@ -216,6 +221,9 @@ class TunnelVpnService : VpnService() {
     private val killSwitchManager = KillSwitchManager()
     private lateinit var killSwitchStore: KillSwitchStore
 
+    @Inject lateinit var usageStats: UsageStatsRepository
+    @Inject lateinit var tcpNoDelayRepository: TcpNoDelayRepository
+
     private var tunFd: ParcelFileDescriptor? = null
     private var currentProfileId: Long = -1L
     private var currentProfileName: String = ""
@@ -269,6 +277,9 @@ class TunnelVpnService : VpnService() {
         scope.launch {
             speedMonitor.speed.collect { TunnelSpeedHolder.update(it) }
         }
+        scope.launch {
+            speedMonitor.cumulative.collect { (rx, tx) -> usageStats.noteProgress(rx, tx) }
+        }
         createNotificationChannel()
     }
 
@@ -288,28 +299,6 @@ class TunnelVpnService : VpnService() {
                 val profileType = intent.getStringExtra(EXTRA_PROFILE_TYPE)
                     ?: ProfileType.VLESS.name
                 val configJson = intent.getStringExtra(EXTRA_CONFIG_JSON) ?: ""
-                val injectorParams =
-                    if (intent.getBooleanExtra(EXTRA_INJECTOR, false)) {
-                        InjectorSessionManager.Params(
-                            host = intent.getStringExtra(EXTRA_INJECTOR_SSH_HOST) ?: "",
-                            port = intent.getIntExtra(EXTRA_INJECTOR_SSH_PORT, 0),
-                            user = intent.getStringExtra(EXTRA_INJECTOR_SSH_USER) ?: "",
-                            password = intent.getStringExtra(EXTRA_INJECTOR_SSH_PASSWORD) ?: "",
-                            sniHost = intent.getStringExtra(EXTRA_INJECTOR_SNI) ?: "",
-                            networkId = intent.getLongExtra(EXTRA_INJECTOR_NETWORK_ID, -1L),
-                            mode = runCatching {
-                                InjectorMode.valueOf(
-                                    intent.getStringExtra(EXTRA_INJECTOR_MODE)
-                                        ?: InjectorMode.SNI.name,
-                                )
-                            }.getOrDefault(InjectorMode.SNI),
-                            proxyHost = intent.getStringExtra(EXTRA_INJECTOR_PROXY_HOST) ?: "",
-                            proxyPort = intent.getIntExtra(EXTRA_INJECTOR_PROXY_PORT, 0),
-                            payloadText = intent.getStringExtra(EXTRA_INJECTOR_PAYLOAD) ?: "",
-                        )
-                    } else {
-                        null
-                    }
                 scope.launch {
                     // The kill-switch extra is present only when the
                     // caller passed it (the ViewModel at connect
@@ -323,6 +312,34 @@ class TunnelVpnService : VpnService() {
                     } else {
                         killSwitchStore.enabled.first()
                     }
+                    // TCP No Delay is opt-in on the injector path
+                    // (default off): read the stored setting here,
+                    // beside the kill-switch read, and pass it into
+                    // the injector params built below.
+                    val tcpNoDelayEnabled = tcpNoDelayRepository.enabled.first()
+                    val injectorParams =
+                        if (intent.getBooleanExtra(EXTRA_INJECTOR, false)) {
+                            InjectorSessionManager.Params(
+                                host = intent.getStringExtra(EXTRA_INJECTOR_SSH_HOST) ?: "",
+                                port = intent.getIntExtra(EXTRA_INJECTOR_SSH_PORT, 0),
+                                user = intent.getStringExtra(EXTRA_INJECTOR_SSH_USER) ?: "",
+                                password = intent.getStringExtra(EXTRA_INJECTOR_SSH_PASSWORD) ?: "",
+                                sniHost = intent.getStringExtra(EXTRA_INJECTOR_SNI) ?: "",
+                                networkId = intent.getLongExtra(EXTRA_INJECTOR_NETWORK_ID, -1L),
+                                mode = runCatching {
+                                    InjectorMode.valueOf(
+                                        intent.getStringExtra(EXTRA_INJECTOR_MODE)
+                                            ?: InjectorMode.SNI.name,
+                                    )
+                                }.getOrDefault(InjectorMode.SNI),
+                                proxyHost = intent.getStringExtra(EXTRA_INJECTOR_PROXY_HOST) ?: "",
+                                proxyPort = intent.getIntExtra(EXTRA_INJECTOR_PROXY_PORT, 0),
+                                payloadText = intent.getStringExtra(EXTRA_INJECTOR_PAYLOAD) ?: "",
+                                tcpNoDelay = tcpNoDelayEnabled,
+                            )
+                        } else {
+                            null
+                        }
                     startTunnel(
                         profileId,
                         profileName,
@@ -490,6 +507,7 @@ class TunnelVpnService : VpnService() {
                 isInjector = injectorParams != null,
             )
             TunnelStateHolder.update(TunnelState.Started(profileName))
+            usageStats.beginSession(currentProfileName)
             startForegroundService()
             updateNotification("متصل — $profileName")
             registerNetworkCallback()
@@ -516,6 +534,7 @@ class TunnelVpnService : VpnService() {
             reconnectAttempt = 0
             heartbeat.stop()
             speedMonitor.stop()
+            usageStats.endSession()
             stopEngineSilently()
             // The injector SSH session dies with the tunnel, in every
             // stop path (user stop, revoke, destroy, core request).
