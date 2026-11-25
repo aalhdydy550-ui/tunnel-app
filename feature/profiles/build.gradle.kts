@@ -55,4 +55,10 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.robolectric)
+    // ProfilesViewModelTest builds a real DataStore (SettingsRepository)
+    // and a fake ProfileDao — both invisible to this module's main
+    // classpath (core:data keeps DataStore implementation-private, and
+    // there is no main dependency on core:database at all).
+    testImplementation(libs.androidx.datastore.preferences)
+    testImplementation(project(":core:database"))
 }
