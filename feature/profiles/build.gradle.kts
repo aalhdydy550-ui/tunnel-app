@@ -48,4 +48,11 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
+
+    // Unit tests only (same test artifacts the other modules use —
+    // no new runtime dependency): ProfilesViewModelTest runs on
+    // Robolectric (item 6).
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.robolectric)
 }
