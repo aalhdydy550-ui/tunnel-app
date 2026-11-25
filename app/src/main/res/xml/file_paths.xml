@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FileProvider paths for the in-app updater (see UpdateInstaller).
+  The downloaded APK lives at <cacheDir>/updates/update.apk
+  (written by OkHttpUpdateDownloader); only that folder is shared,
+  and only with the system installer. Nothing else in the cache is
+  exposed.
+-->
+<paths>
+    <cache-path name="updates" path="updates/" />
+</paths>
