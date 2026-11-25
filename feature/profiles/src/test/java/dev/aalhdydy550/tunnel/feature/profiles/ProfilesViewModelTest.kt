@@ -2,7 +2,7 @@ package dev.aalhdydy550.tunnel.feature.profiles
 
 import android.content.Context
 import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import dev.aalhdydy550.tunnel.core.data.groups.ConnectionGroup
 import dev.aalhdydy550.tunnel.core.data.groups.GroupMode
