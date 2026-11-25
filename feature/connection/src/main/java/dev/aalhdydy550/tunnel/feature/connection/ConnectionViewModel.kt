@@ -7,6 +7,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.aalhdydy550.tunnel.core.data.groups.ConnectionGroup
+import dev.aalhdydy550.tunnel.core.data.groups.GroupAutoSelect
+import dev.aalhdydy550.tunnel.core.data.groups.GroupStore
 import dev.aalhdydy550.tunnel.core.data.model.Profile
 import dev.aalhdydy550.tunnel.core.data.model.ProfileType
 import dev.aalhdydy550.tunnel.core.data.net.DnsSelector
@@ -25,6 +28,7 @@ import dev.aalhdydy550.tunnel.core.data.singbox.SingBoxConfigBuilder
 import dev.aalhdydy550.tunnel.feature.connection.openvpn.OpenVpnLauncher
 import dev.aalhdydy550.tunnel.feature.connection.openvpn.OpenVpnResult
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -33,6 +37,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -87,6 +92,7 @@ class ConnectionViewModel @Inject constructor(
     private val allowInsecureStore: AllowInsecureStore,
     private val proxyModeStore: ProxyModeStore,
     private val killSwitchStore: KillSwitchStore,
+    private val groupStore: GroupStore,
     private val openVpnLauncher: OpenVpnLauncher,
 ) : ViewModel() {
 
@@ -116,6 +122,29 @@ class ConnectionViewModel @Inject constructor(
     private val _openVpnMessage = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val openVpnMessage: SharedFlow<String> = _openVpnMessage.asSharedFlow()
 
+    /**
+     * Failover notice (item 6b): shown on the servers screen after
+     * the group failover gave up (every candidate failed). Null
+     * otherwise; the UI clears it on dismiss.
+     */
+    private val _failoverNotice = MutableStateFlow<String?>(null)
+    val failoverNotice: StateFlow<String?> = _failoverNotice.asStateFlow()
+
+    fun clearFailoverNotice() {
+        _failoverNotice.value = null
+    }
+
+    /** A group connect in progress that may fail over (item 6b). */
+    private data class FailoverSession(
+        val group: ConnectionGroup,
+        val failedIds: MutableSet<Long> = mutableSetOf(),
+        var attemptsLeft: Int = GroupAutoSelect.MAX_FAILOVERS,
+        var currentProfile: Profile,
+    )
+
+    private var failoverSession: FailoverSession? = null
+    private var failoverWatchJob: Job? = null
+
     /** True while an OpenVPN profile is connected through the external
      * app (last known state only — the launcher has no synchronous
      * status read; see `OpenVpnLauncher.isActive`). Set in
@@ -137,26 +166,132 @@ class ConnectionViewModel @Inject constructor(
     fun connect(profile: Profile? = null) {
         viewModelScope.launch {
             val target = profile ?: selectedProfile.value ?: return@launch
-            pendingProfile = target
-            when (resolveConnectRoute(target.type, proxyModeStore.mode.first())) {
-                ConnectRoute.OPENVPN -> {
-                    connectViaOpenVpn(target)
-                    return@launch
-                }
-                ConnectRoute.PROXY -> {
-                    connectViaProxy(target)
-                    return@launch
-                }
-                ConnectRoute.VPN -> {
-                    // Falls through to the permission check below.
-                }
-            }
-            if (VpnService.prepare(context) != null) {
-                _vpnPermissionRequest.emit(Unit)
-                return@launch
-            }
-            startServiceFor(target)
+            connectRouted(target)
         }
+    }
+
+    /**
+     * The connect routing (VPN / OpenVPN / proxy) shared by [connect]
+     * and by the group failover retries. The failover session starts
+     * here only for the VPN route of a fresh (non-retry) connect
+     * inside an active group; the OpenVPN and proxy routes never
+     * report [TunnelState.Error], so no failover can follow them and
+     * any session ends there. Nothing about the tunnel path itself,
+     * the OpenVPN/proxy branches, or the kill switch changes.
+     */
+    private suspend fun connectRouted(target: Profile, isFailoverRetry: Boolean = false) {
+        pendingProfile = target
+        val route = resolveConnectRoute(target.type, proxyModeStore.mode.first())
+        if (route == ConnectRoute.VPN) {
+            if (!isFailoverRetry) maybeStartFailoverSession(target)
+        } else {
+            endFailoverSession()
+        }
+        when (route) {
+            ConnectRoute.OPENVPN -> {
+                connectViaOpenVpn(target)
+                return
+            }
+            ConnectRoute.PROXY -> {
+                connectViaProxy(target)
+                return
+            }
+            ConnectRoute.VPN -> {
+                // Falls through to the permission check below.
+            }
+        }
+        if (VpnService.prepare(context) != null) {
+            _vpnPermissionRequest.emit(Unit)
+            return
+        }
+        startServiceFor(target)
+    }
+
+    /**
+     * Starts a failover session when [target] belongs to the active
+     * group (VPN route only). The watcher observes [state]: a
+     * [TunnelState.Started] records the success in the group
+     * ([GroupStore.recordSuccess] updates `lastGoodProfileId`) and
+     * ends the session; a [TunnelState.Error] on the initial start
+     * tries the next [GroupAutoSelect.failoverCandidates] — at most
+     * [GroupAutoSelect.MAX_FAILOVERS] attempts — then stops with a
+     * clear Arabic message. [TunnelState.Stopped] (user stop) ends
+     * the session silently. Mid-session drops are NOT failed over
+     * here: the service owns those retries (its reconnect loop), and
+     * `Blocked` (kill switch holding the TUN) must never be fought
+     * by switching servers.
+     */
+    private suspend fun maybeStartFailoverSession(target: Profile) {
+        endFailoverSession()
+        val groupId = groupStore.activeGroupId.first() ?: return
+        val group = groupStore.groups.first().firstOrNull { it.id == groupId } ?: return
+        if (target.id !in group.profileIds) return
+        val session = FailoverSession(group = group, currentProfile = target)
+        failoverSession = session
+        failoverWatchJob = viewModelScope.launch {
+            // Drop the replayed current state: only real transitions
+            // after this connect may trigger a failover.
+            state.drop(1).collect { tunnelState ->
+                val current = failoverSession ?: return@collect
+                when (tunnelState) {
+                    is TunnelState.Started -> {
+                        if (tunnelState.profileName == current.currentProfile.name) {
+                            runCatching {
+                                groupStore.recordSuccess(
+                                    current.group.id,
+                                    current.currentProfile.id,
+                                )
+                            }
+                        }
+                        endFailoverSession()
+                    }
+                    is TunnelState.Error -> {
+                        current.failedIds += current.currentProfile.id
+                        if (current.attemptsLeft <= 0) {
+                            _failoverNotice.value =
+                                "تعذّر الاتصال بكل خوادم المجموعة " +
+                                    "«${current.group.name}» — جرّب خادمًا آخر " +
+                                    "أو تحقق من اتصال الإنترنت."
+                            endFailoverSession()
+                            return@collect
+                        }
+                        val next = runCatching {
+                            GroupAutoSelect.failoverCandidates(
+                                group = current.group,
+                                profiles = profileRepository.profiles.first(),
+                                failedIds = current.failedIds.toSet(),
+                                // No latency map in this ViewModel —
+                                // the group's stored speeds order the
+                                // candidates instead.
+                                latencyMs = emptyMap(),
+                                lastSpeedMbps = current.group.lastSpeedByProfile,
+                            ).firstOrNull()
+                        }.getOrNull()
+                        if (next == null) {
+                            _failoverNotice.value =
+                                "تعذّر الاتصال بكل خوادم المجموعة " +
+                                    "«${current.group.name}» — جرّب خادمًا آخر " +
+                                    "أو تحقق من اتصال الإنترنت."
+                            endFailoverSession()
+                            return@collect
+                        }
+                        current.attemptsLeft--
+                        current.currentProfile = next
+                        viewModelScope.launch {
+                            connectRouted(next, isFailoverRetry = true)
+                        }
+                    }
+                    is TunnelState.Stopped -> endFailoverSession()
+                    else -> Unit
+                }
+            }
+        }
+    }
+
+    private fun endFailoverSession() {
+        failoverWatchJob?.cancel()
+        failoverWatchJob = null
+        failoverSession = null
     }
 
     /** Called by the UI after the user granted the VPN permission. */
