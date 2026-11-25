@@ -26,10 +26,12 @@
 ## ما يفعله التطبيق (v0.1)
 
 - استيراد خوادم من روابط (`vless` / `vmess` / `trojan` / `ss` /
-  `hysteria2` / `tuic` / `ssh`) أو ملف WireGuard `.conf` أو JSON خام
-  لـsing-box أو نسخة احتياطية JSON من التطبيق نفسه؛ ولصق من الحافظة؛
-  واختيار ملف من التخزين؛ أو رابط اشتراك يُجلب كل يوم تلقائيًا
-  (التحديث يستبدل خوادم الاشتراك فقط ويُبقي اليدوية).
+  `hysteria2` / `tuic` / `ssh`) أو ملف WireGuard `.conf` أو ملف OpenVPN
+  `.ovpn` (عبر تطبيق OpenVPN for Android المنفصل) أو JSON خام
+  لـsing-box أو نسخة احتياطية JSON من التطبيق نفسه أو ملف تصدير مقفول
+  `.aytun` (مشفر بكلمة سر)؛ ولصق من الحافظة؛ واختيار ملف من التخزين؛
+  أو رابط اشتراك يُجلب كل يوم تلقائيًا (التحديث يستبدل خوادم الاشتراك
+  فقط ويُبقي اليدوية).
 - قائمة خوادم مع علم الدولة (إيموجي من رمز ISO يضعه المستخدم)،
   واختبار تأخير لكل خادم، واختيار أسرع سيرفر تلقائيًا (أقل تأخير،
   وعند التساوي تُفضَّل Hysteria2 ثم WireGuard).
@@ -39,24 +41,35 @@
   اتصال تلقائية مع backoff عند تغيّر الشبكة أو فشل النفق أو موته
   الصامت (يكشفه نبض حياة كل 60 ثانية)، واستثناء من تحسين البطارية،
   وإعادة تشغيل عند الإقلاع (اختياري)، وإحياء الخدمة إن قتلها النظام
-  (START_STICKY + جلسة محفوظة)، ومفتاح قتل (Kill Switch) عبر إعدادات
-  أندرويد، وتسجيل سبب كل انقطاع.
+  (START_STICKY + جلسة محفوظة)، ومفتاح قتل (Kill Switch) داخل التطبيق
+  (يبقي الـTUN مفتوحًا عند السقوط غير المقصود — ولا ينجو من موت
+  العملية؛ وAlways-on في النظام يبقى الأقوى) إضافةً إلى Kill Switch
+  عبر إعدادات أندرويد، وتسجيل سبب كل انقطاع.
 - حظر إعلانات اختياري بقائمة محدّثة صغيرة تُنزَّل مرة واحدة (انظر
   «بيانات التوجيه» أدناه).
-- نسخة احتياطية يومية تلقائية + تصدير يدوي JSON.
+- نسخة احتياطية يومية تلقائية + تصدير يدوي JSON + تصدير مشفّر مقفول
+  (`.aytun` — AES-256-GCM + PBKDF2) بمشاركة QR لبروفايل واحد.
+- **وضع بروكسي بدون VPN:** خدمة أمامية عادية (بلا إذن VPN) تشغّل
+  المحرك نفسه بلا مدخل `tun` — للتطبيقات التي تضبط بروكسي يدويًا على
+  `127.0.0.1:10808`؛ وبلا توجيه تلقائي وبلا per-app وبلا kill-switch
+  وبلا التقاط DNS في هذا الوضع.
+- **مجموعات خوادم ذكية + اختبار سرعة حقيقي:** مجموعات (الأسرع /
+  عشوائي / تناوبي) مع تجاوز تلقائي محدود (محاولتان كحد أقصى) عند فشل
+  الاتصال؛ واختبار سرعة تنزيل فعلي (5–25 ميجا، سقف 10 ثوانٍ) بضغطة
+  المستخدم فقط أثناء اتصال قائم؛ وزر «اتصال عشوائي».
 
 ## تغطية البروتوكولات (كل أنواع الأصلي، محسّنة — لا حذف)
 
 | النوع في الأصلي | عندنا | الحالة |
 |---|---|---|
-| OpenVPN | ics-openvpn | المرحلة 2 |
+| OpenVPN | تطبيق OpenVPN for Android المنفصل عبر Remote API (كود `remoteExample` بترخيص Apache-2.0) — استيراد `.ovpn` + اتصال كامل؛ وبلا أي كود ics-openvpn (GPL-2.0-only) | ✅ جولة «التطبيق الأحسن» (البند 1) |
 | SSH | sing-box `ssh` أصلي | ✅ v0.1 |
 | VLESS / VMess / Trojan / Shadowsocks | sing-box أصلي | ✅ v0.1 |
 | WireGuard | sing-box أصلي | ✅ v0.1 |
 | Hysteria v1 | محذوف عمدًا (Hysteria2 يغطيه) | ✅ v0.1 |
 | Hysteria2 | sing-box أصلي + Salamander + قفز منافذ | ✅ v0.1 |
 | DNSTT | مكتبة DNSTT الأصلية | المرحلة 2 |
-| ZIVPN | عملية خارجية + SOCKS5 | المرحلة 2 |
+| ZIVPN | **غير منفذ** — البحث الاستكشافي (Spike 2026-11-25) انتهى إلى (ج) لا مصدر موثوق: صيغة السلك ليست Hysteria2 ولا مواصفة علنية ولا عميل/خادم مفتوح المصدر؛ والخطافات (`ProfileType.ZIVPN` + outbound `socks`) باقية | ⏳ بلا موعد — يُعاد النظر فقط إن ظهر مصدر موثوق |
 | — | TUIC (إضافة) | ✅ v0.1 |
 
 التفاصيل الكاملة (جدول المقارنة + الأوضاع الأربعة + الإصلاحات
@@ -106,7 +119,7 @@ Shadowsocks بهوية دخول مكتوبة) **مستبعَد تمامًا**: �
 أي قالب افتراضي وبلا أي بيانات دخول مدمجة — الخوادم تأتي من استيراد
 المستخدم فقط.
 
-### النت المجاني (المرحلة 2)
+### النت المجاني — مولّد الحمولة + الحقن HTTP + فاحص الهوستات (جولة «التطبيق الأحسن» — البند 3)
 
 خيارات الشبكات المجانية المدمجة في الأصلي (Vodafone Free Internet /
 Vodafone Free Flex / اتصالات / WE) تظهر أسماؤها فقط — وقيم مضيفيها
@@ -114,8 +127,19 @@ Vodafone Free Flex / اتصالات / WE) تظهر أسماؤها فقط — و�
 لنسخها. اعتمادنا يبقى على مجموعة الكونفيجات
 (`~/workspace/tunnel-app-configs/`: المضيف الوحيد غير الموثّق
 `scorm.ekb.eg` لوي + أي مضيف يُوثَّق لاحقًا بالتجربة) عبر مولّد
-الحمولة في المرحلة 2 — لا على قيم مخفية من الأصلي. والتطبيق عميل
+الحمولة — لا على قيم مخفية من الأصلي. والتطبيق عميل
 فقط: لا يأتي مع سيرفرات مجانية.
+
+ما نُفّذ في البند 3: مولّد قوالب حمولة (`CONNECT`/`GET`/`POST` +
+قالب مخصص، مع تطهير CRLF) + حقن HTTP عبر بروكسي الشريحة إلى JSch
+(ينجح فقط على `200`/`101`) + فاحص هوستات (`CONNECT host:443` إلى
+البروكسي، والهوستات من الجدول المرجعي أو إدخال المستخدم — **بلا
+قائمة هوستات مدمجة ولا قيم بروكسي مخترعة**) — كلها في شاشة «نت
+مجاني» (وضع SNI القديم باقٍ وهو الافتراضي). **القاعدة الصادقة:**
+كل ميزة «نت مجاني» موسومة «جرّب على شريحتك — غير موثقة»، والحكم
+الوحيد اختبار ميداني على شريحة المستخدم مع عدّاد البيانات؛ ونجاح
+الفحص يعني «البروكسي رد 200» فقط — لا يعني نتًا مجانيًا.
+التفاصيل: [`docs/FILES.md`](docs/FILES.md) §8.
 
 ## بيانات التوجيه: استبدال لا حذف
 
@@ -219,15 +243,22 @@ API (403) — يُرفع عبر موقع github.com.
 
 **يشمل:** كل ما سبق — البروتوكولات السبعة عبر sing-box، والاستيراد
 بأشكاله (روابط + ملفات + اشتراكات بتحديث يومي تلقائي)، والاستقرار (خدمة أمامية + إعادة اتصال + نبض حياة + بطارية
-+ إقلاع + إحياء + kill switch)، والسرعة (أسرع سيرفر + mux/fragment
++ إقلاع + إحياء + kill switch داخل التطبيق)، والسرعة (أسرع سيرفر + mux/fragment
 الاختياريان + DNS الأسرع + سرعة حية تظهر على الشاشة)، والبصمة
 (R8 + arm64 فقط + بلا ملفات مدمجة)، وحظر الإعلانات مع fallback آمن،
-والنسخ الاحتياطي، والأعلام بالإيموجي.
+والنسخ الاحتياطي، والأعلام بالإيموجي — **إضافةً إلى جولة «التطبيق
+الأحسن» (2026-11-24/25):** مولّد حمولة + حقن HTTP + فاحص هوستات،
+والتصدير المقفول `.aytun` + QR، واستيراد `.ovpn` والاتصال عبر تطبيق
+OpenVPN for Android المنفصل، ووضع البروكسي بدون VPN، ومفتاح القتل
+داخل التطبيق، واختبار سرعة حقيقي + مجموعات ذكية مع تجاوز محدود.
 
-**يستثني (المرحلة 2، انظر `docs/PHASE2.md`):** ZIVPN، وDNSTT، و
-OpenVPN (ics-openvpn)، ومولّد الحمولة + SNI presets للنت المجاني،
-والأوضاع الأربعة للتوجيه + البروكسي لكل تطبيق، وQR، وتشفير قاعدة
+**يستثني (المرحلة 2، انظر `docs/PHASE2.md`):** ZIVPN (البحث
+الاستكشافي انتهى إلى «لا مصدر موثوق» — يبقى غير منفذ)، وDNSTT،
+والأوضاع الأربعة للتوجيه + البروكسي لكل تطبيق، وتشفير قاعدة
 البيانات (SQLCipher)، واختبار تأخير عبر النفق (CommandClient).
+التفاصيل الكاملة لكل بند من الجولة: [`docs/FILES.md`](docs/FILES.md)
+§8–§14، والتقرير النهائي للجولة في
+`~/workspace/tunnel-app-work/better-app-round/REPORT-AR.md`.
 
 ## قرارات اتخذتها بتفويض المستخدم («اعمل افضل حاجه للتطبيق»)
 
@@ -269,9 +300,22 @@ OpenVPN (ics-openvpn)، ومولّد الحمولة + SNI presets للنت ال�
 - `ProfileDaoTest` (Robolectric): عمليات Room.
 - `SpeedMonitorTest` (3) و`HeartbeatMonitorTest` (3).
 
-**المجموع: 70 اختبارًا** (تُشغَّل بـ`./gradlew testDebugUnitTest`؛
-وتتحقق محليًا بأداة kotlinc لأن Gradle daemon مستحيل على هذا الـVM —
-انظر المهارة `~/workspace/custom-skills/tunnel-app-stack/SKILL.md`).
+**المجموع قبل جولة «التطبيق الأحسن»: 70 اختبارًا.** وأضافت الجولة
+اختبارات جديدة لكل بند (كلها أُعيد تشغيلها في محاكي kotlinc قبل
+الدفع، وCI الأخضر على `c916100` هو الحكم النهائي):
+
+| البند | الاختبارات الجديدة | العدد |
+|---|---|---|
+| 3 — الحمولة + الحقن + الفاحص | `PayloadGeneratorTest` + `HttpInjectorTest` + `HostScannerTest` | 40 |
+| 4 — التصدير المقفول | `LockedExportTest` + `QrCodeEncoderTest` | 15 |
+| 1 — `.ovpn` | `OvpnConfParserTest` + `OpenVpnLauncherTest` (+ تمديد 3 ملفات اختبار قائمة) | 37 + 14 |
+| 5أ — وضع البروكسي | `ProxyOnlyConfigTest` + `ConnectRouteTest` | 12 |
+| 2 — Kill Switch | `KillSwitchManagerTest` (+ تأكيدات `Blocked` في اختبار البلاطة) | 16 |
+| 6 — السرعة + المجموعات | `GroupAutoSelectTest` + `SpeedTestTest` + `ProfilesViewModelTest` (Robolectric) + 5 اختبارات واجهة في المحاكي | 22 + 9 + 3 + 5 |
+
+(تُشغَّل بـ`./gradlew testDebugUnitTest`؛ وتتحقق محليًا بأداة kotlinc
+لأن Gradle daemon مستحيل على هذا الـVM — انظر المهارة
+`~/workspace/custom-skills/tunnel-app-stack/SKILL.md`).
 البناء الكامل (APK) يُتحقق منه عبر GitHub Actions بعد الرفع.
 
 ## بنية المشروع
@@ -281,9 +325,14 @@ app/                  التطبيق (MainActivity + TunnelApp + البيان)
 core/ui/              الثيم + مكونات Compose المشتركة
 core/data/            النماذج + المحللات + الباني + المستودعات +
                       الشبكات (تأخير/سرعة/DNS/نقاط) + التوجيه + النسخ
+                      + المجموعات (`groups/`) + التصدير المقفول (`backup/`)
 core/database/        Room (الكيان + DAO + قاعدة البيانات v2)
-feature/connection/   المحرك + الخدمة + المراقبون + الواجهة
-feature/profiles/     شاشتا الخوادم والاستيراد
+feature/connection/   المحرك + الخدمة + المراقبون + الواجهة +
+                      الحقن (`injector/` + `injector/payload/`) +
+                      OpenVPN المنفصل (`openvpn/`) + البروكسي
+                      (`ProxyOnlyService`) + Kill Switch + اختبار السرعة
+feature/profiles/     شاشتا الخوادم والاستيراد + المجموعات
+                      (`GroupsScreen`) + التصدير المقفول
 scripts/              build-libbox.sh + measure-footprint.sh
 .github/workflows/    build.yml (يُرفع عبر الموقع)
 docs/                 CONNECTIONS.md + FILES.md + PHASE2.md
@@ -300,13 +349,28 @@ credentials. Package `dev.aalhdydy550.tunnel`, repo
 `github.com/aalhdydy550-ui/tunnel-app`, v0.1.0.
 
 - Protocols: VLESS / VMess / Trojan / Shadowsocks / WireGuard /
-  Hysteria2 / TUIC / SSH via sing-box in v0.1; OpenVPN, DNSTT, ZIVPN
-  in Phase 2 (see `docs/PHASE2.md`).
+  Hysteria2 / TUIC / SSH via sing-box in v0.1; OpenVPN via the
+  separate OpenVPN for Android app (Remote API, Apache-2.0) since the
+  "better-app round"; DNSTT in Phase 2; ZIVPN stays unimplemented
+  (Spike 2026-11-25, decision (c) — no trusted source).
 - Stability: foreground service + auto-reconnect with backoff +
   heartbeat + battery exemption + boot auto-start + START_STICKY
-  revival + kill switch.
+  revival + in-app kill switch (holds the TUN open on unintended
+  failure; does not survive process death — system Always-on stays
+  the stronger cover).
 - Speed: fastest-server selection, optional mux / TLS fragment,
-  fastest-DNS selection, live throughput shown on screen.
+  fastest-DNS selection, live throughput shown on screen, plus a real
+  speed test (Cloudflare download, user-triggered only) and smart
+  server groups (fastest / random / round-robin) with capped failover
+  (2 attempts).
+- Free internet: SNI injection plus an HTTP-injection payload
+  generator and host scanner — all labelled "try on your own SIM,
+  unverified"; no host or proxy value is ever copied from another app.
+- Locked export: `.aytun` files (AES-256-GCM + PBKDF2) with QR
+  sharing for a single profile; losing the password loses the export.
+- Proxy-only mode: a plain foreground service (no VPN permission)
+  running the same engine without a `tun` inbound, for apps that set
+  a manual proxy on 127.0.0.1:10808.
 - Footprint: R8 + arm64-v8a only + no embedded geoip data; measured
   numbers are recorded only after the first CI build
   (`scripts/measure-footprint.sh`).
