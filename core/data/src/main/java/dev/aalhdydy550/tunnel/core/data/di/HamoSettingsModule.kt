@@ -9,15 +9,18 @@ import dev.aalhdydy550.tunnel.core.data.repository.DataStoreAllowInsecureReposit
 import dev.aalhdydy550.tunnel.core.data.repository.DataStoreLocalProxyStore
 import dev.aalhdydy550.tunnel.core.data.repository.DataStoreKillSwitchStore
 import dev.aalhdydy550.tunnel.core.data.repository.DataStoreProxyModeStore
+import dev.aalhdydy550.tunnel.core.data.repository.DataStoreSpeedTestStore
 import dev.aalhdydy550.tunnel.core.data.repository.KillSwitchStore
 import dev.aalhdydy550.tunnel.core.data.repository.LocalProxyStore
 import dev.aalhdydy550.tunnel.core.data.repository.ProxyModeStore
+import dev.aalhdydy550.tunnel.core.data.repository.SpeedTestStore
 import javax.inject.Singleton
 
 /**
  * Binds the Hamo settings stores (local proxy + allow insecure +
- * proxy mode + kill switch) to their interfaces. Kept in its own module so
- * [DataModule] — and the existing settings — are untouched.
+ * proxy mode + kill switch + speed test results) to their interfaces.
+ * Kept in its own module so [DataModule] — and the existing settings —
+ * are untouched.
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -46,4 +49,10 @@ abstract class HamoSettingsModule {
     abstract fun bindKillSwitchStore(
         impl: DataStoreKillSwitchStore,
     ): KillSwitchStore
+
+    @Binds
+    @Singleton
+    abstract fun bindSpeedTestStore(
+        impl: DataStoreSpeedTestStore,
+    ): SpeedTestStore
 }
