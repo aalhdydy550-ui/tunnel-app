@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -57,7 +58,17 @@ import dagger.hilt.android.AndroidEntryPoint
 import dev.aalhdydy550.tunnel.core.ui.R as CoreUiR
 import dev.aalhdydy550.tunnel.core.ui.TunnelTheme
 import dev.aalhdydy550.tunnel.feature.connection.ConnectionViewModel
+import dev.aalhdydy550.tunnel.feature.connection.DiagnosticsScreen
+import dev.aalhdydy550.tunnel.feature.connection.DiagnosticsViewModel
 import dev.aalhdydy550.tunnel.feature.connection.TcpNoDelayViewModel
+import dev.aalhdydy550.tunnel.feature.connection.dns.DnsSettingsScreen
+import dev.aalhdydy550.tunnel.feature.connection.dns.DnsSettingsViewModel
+import dev.aalhdydy550.tunnel.feature.connection.perapp.PerAppProxyScreen
+import dev.aalhdydy550.tunnel.feature.connection.perapp.PerAppProxyViewModel
+import dev.aalhdydy550.tunnel.feature.connection.stats.UsageStatsScreen
+import dev.aalhdydy550.tunnel.feature.connection.stats.UsageStatsViewModel
+import dev.aalhdydy550.tunnel.feature.connection.update.UpdateCheckScreen
+import dev.aalhdydy550.tunnel.feature.connection.update.UpdateCheckViewModel
 import dev.aalhdydy550.tunnel.feature.connection.injector.FreeInternetScreen
 import dev.aalhdydy550.tunnel.feature.connection.injector.FreeInternetViewModel
 import dev.aalhdydy550.tunnel.feature.connection.settings.SettingsScreen
@@ -162,6 +173,46 @@ class MainActivity : ComponentActivity() {
                                 },
                             )
                             NavigationDrawerItem(
+                                label = { Text("بروكسي لكل تطبيق") },
+                                selected = screen == Screen.PER_APP_PROXY,
+                                onClick = {
+                                    screen = Screen.PER_APP_PROXY
+                                    scope.launch { drawerState.close() }
+                                },
+                            )
+                            NavigationDrawerItem(
+                                label = { Text("DNS") },
+                                selected = screen == Screen.DNS_SETTINGS,
+                                onClick = {
+                                    screen = Screen.DNS_SETTINGS
+                                    scope.launch { drawerState.close() }
+                                },
+                            )
+                            NavigationDrawerItem(
+                                label = { Text("إحصاءات الاستخدام") },
+                                selected = screen == Screen.USAGE_STATS,
+                                onClick = {
+                                    screen = Screen.USAGE_STATS
+                                    scope.launch { drawerState.close() }
+                                },
+                            )
+                            NavigationDrawerItem(
+                                label = { Text("سجل التشخيص") },
+                                selected = screen == Screen.DIAGNOSTICS,
+                                onClick = {
+                                    screen = Screen.DIAGNOSTICS
+                                    scope.launch { drawerState.close() }
+                                },
+                            )
+                            NavigationDrawerItem(
+                                label = { Text("التحقق من التحديثات") },
+                                selected = screen == Screen.UPDATE_CHECK,
+                                onClick = {
+                                    screen = Screen.UPDATE_CHECK
+                                    scope.launch { drawerState.close() }
+                                },
+                            )
+                            NavigationDrawerItem(
                                 label = { Text("الإعدادات") },
                                 selected = screen == Screen.SETTINGS,
                                 onClick = {
@@ -205,7 +256,12 @@ class MainActivity : ComponentActivity() {
                                     if (screen == Screen.IMPORT ||
                                         screen == Screen.GROUPS ||
                                         screen == Screen.FREE_INTERNET ||
-                                        screen == Screen.SETTINGS
+                                        screen == Screen.SETTINGS ||
+                                        screen == Screen.PER_APP_PROXY ||
+                                        screen == Screen.DNS_SETTINGS ||
+                                        screen == Screen.USAGE_STATS ||
+                                        screen == Screen.DIAGNOSTICS ||
+                                        screen == Screen.UPDATE_CHECK
                                     ) {
                                         IconButton(onClick = { screen = Screen.SERVERS }) {
                                             Icon(
@@ -251,6 +307,14 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                 },
+                                actions = {
+                                    IconButton(onClick = { screen = Screen.UPDATE_CHECK }) {
+                                        Icon(
+                                            imageVector = Icons.Default.SystemUpdate,
+                                            contentDescription = "التحقق من التحديثات",
+                                        )
+                                    }
+                                },
                             )
                         },
                         floatingActionButton = {
@@ -288,6 +352,11 @@ class MainActivity : ComponentActivity() {
                                     settingsViewModel = hiltViewModel<SettingsViewModel>(),
                                     tcpNoDelayViewModel = hiltViewModel<TcpNoDelayViewModel>(),
                                 )
+                                Screen.PER_APP_PROXY -> PerAppProxyScreen(viewModel = hiltViewModel<PerAppProxyViewModel>())
+                                Screen.DNS_SETTINGS -> DnsSettingsScreen(viewModel = hiltViewModel<DnsSettingsViewModel>())
+                                Screen.USAGE_STATS -> UsageStatsScreen(viewModel = hiltViewModel<UsageStatsViewModel>())
+                                Screen.DIAGNOSTICS -> DiagnosticsScreen(viewModel = hiltViewModel<DiagnosticsViewModel>())
+                                Screen.UPDATE_CHECK -> UpdateCheckScreen(viewModel = hiltViewModel<UpdateCheckViewModel>())
                             }
                         }
                     }
@@ -330,5 +399,5 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private enum class Screen { SERVERS, IMPORT, GROUPS, FREE_INTERNET, SETTINGS }
+    private enum class Screen { SERVERS, IMPORT, GROUPS, FREE_INTERNET, SETTINGS, PER_APP_PROXY, DNS_SETTINGS, USAGE_STATS, DIAGNOSTICS, UPDATE_CHECK }
 }
