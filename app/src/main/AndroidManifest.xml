@@ -16,6 +16,10 @@
          policy: this permission is sensitive — for the store phase the
          request must be justified in the listing, or dropped) -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- In-app updater: installing a downloaded APK needs this
+         declaration (Android 8+ per-app toggle); the toggle itself is
+         granted by the user in Settings, never by the app. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".TunnelApp"
@@ -36,6 +40,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- In-app updater: shares the downloaded APK with the system
+             installer only (see res/xml/file_paths.xml — updates/ folder). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="dev.aalhdydy550.tunnel.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
     </application>
 
